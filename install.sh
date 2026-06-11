@@ -25,7 +25,6 @@ hr()      { echo -e "${GR}──────────────────
 reading() { read -rp "$(echo -e "${G}[?]${R} ${Y}$1${R} ")" "$2"; }
 
 banner() {
-    clear
     echo -e "${C}"
     echo "  ██████╗  █████╗ ██████╗ ██╗  ██╗    ██╗   ██╗██╗███████╗"
     echo "  ██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝    ██║   ██║██║██╔════╝"
@@ -199,9 +198,10 @@ get_acme_cert() {
         --reloadcmd  "docker compose -f ${PANEL_DIR}/docker-compose.yml restart nginx 2>/dev/null" \
         2>/dev/null
 
-    # Автопродление через cron
+    # Автопродление через cron — каждый день проверяет, обновит когда останется < 10 дней (из 90)
+    # Это даёт ~80 дней жизни сертификата до обновления
     (crontab -l 2>/dev/null | grep -v acme; \
-     echo "0 3 * * * $acme --cron --home ~/.acme.sh > /dev/null 2>&1") | crontab -
+     echo "0 3 * * * $acme --cron --home ~/.acme.sh --days 80 > /dev/null 2>&1") | crontab -
 
     info "Сертификат получен и настроено автопродление (каждые 60 дней)"
     return 0
@@ -514,31 +514,195 @@ EOF
 }
 
 # ── Запуск стека ──────────────────────────────────────────
+# ── Встроенный docker-compose.yml (fallback если не скачался из репо) ─────────
+create_docker_compose() {
+    local vpn_port; vpn_port=$(grep "^VLESS_PORT=" "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+    vpn_port="${vpn_port:-2053}"
+    local panel_port; panel_port=$(grep "^PANEL_PORT=" "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+    panel_port="${panel_port:-9443}"
+    local panel_http; panel_http=$(grep "^PANEL_HTTP_PORT=" "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+    panel_http="${panel_http:-9080}"
+
+    cat > "${PANEL_DIR}/docker-compose.yml" << EOF
+version: '3.9'
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: darkvision-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: \${POSTGRES_DB:-darkvision}
+      POSTGRES_USER: \${POSTGRES_USER:-darkvision}
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [darkvision-net]
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U \${POSTGRES_USER:-darkvision}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: darkvision-redis
+    restart: unless-stopped
+    command: redis-server --requirepass \${REDIS_PASSWORD} --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes
+    volumes: [redis_data:/data]
+    networks: [darkvision-net]
+    healthcheck:
+      test: ["CMD","redis-cli","-a","\${REDIS_PASSWORD}","ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  xray:
+    image: ghcr.io/xtls/xray-core:latest
+    container_name: darkvision-xray
+    restart: unless-stopped
+    volumes:
+      - ${PANEL_DIR}/xray/config:/etc/xray
+      - xray_logs:/var/log/xray
+    networks: [darkvision-net]
+    expose: ["10085"]
+    ports: ["${vpn_port}:443"]
+    cap_add: [NET_ADMIN]
+    ulimits:
+      nofile: {soft: 51200, hard: 51200}
+
+  backend:
+    image: golang:1.22-alpine
+    container_name: darkvision-backend
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "go mod download && go run ."
+    env_file: .env
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes:
+      - ${PANEL_DIR}/backend:/app
+      - ${PANEL_DIR}/xray/config:/xray-config
+      - backend_logs:/var/log/darkvision
+    networks: [darkvision-net]
+    expose: ["8080"]
+    healthcheck:
+      test: ["CMD","wget","-qO-","http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: darkvision-nginx
+    restart: unless-stopped
+    depends_on: [backend]
+    ports:
+      - "${panel_port}:443"
+      - "${panel_http}:80"
+    volumes:
+      - ${PANEL_DIR}/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ${PANEL_DIR}/nginx/ssl:/etc/nginx/ssl:ro
+      - ${PANEL_DIR}/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_logs:/var/log/nginx
+    networks: [darkvision-net]
+
+volumes:
+  postgres_data:
+  redis_data:
+  xray_logs:
+  backend_logs:
+  nginx_logs:
+
+networks:
+  darkvision-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+EOF
+    info "docker-compose.yml создан"
+}
+
+
 start_stack() {
     cd "${PANEL_DIR}" || error "Нет папки ${PANEL_DIR}"
-    step "Скачиваю образы..."
-    docker compose pull &>/dev/null &
-    spinner $! "Docker pull..."
-    step "Запуск контейнеров..."
-    docker compose up -d --remove-orphans &>/dev/null &
-    spinner $! "Старт DarkVision..."
-    sleep 8
+    if [[ ! -f "${PANEL_DIR}/docker-compose.yml" ]]; then
+        warn "docker-compose.yml не найден — создаю встроенный..."
+        create_docker_compose
+    fi
+
+    # Проверить наличие .env
+    if [[ ! -f "${PANEL_DIR}/.env" ]]; then
+        error ".env не найден! Запусти полную установку заново."
+    fi
 
     echo ""
-    echo -e "${W}Статус контейнеров:${R}"
-    docker compose ps --format "  {{.Name}}\t{{.Status}}" 2>/dev/null | \
-        awk '{printf "  %-35s %s\n", $1, $2}'
+    step "Скачиваю Docker образы (первый раз ~2-5 минут)..."
+    echo ""
+    docker compose pull 2>&1 | grep -E "Pull complete|already|Pulling|Downloaded|Status" | \
+        while read -r line; do echo -e "  ${GR}${line}${R}"; done
+    echo ""
 
-    # Итоговая проверка
-    local ok=0
-    for svc in postgres redis xray backend; do
-        docker compose ps --status running 2>/dev/null | grep -q "darkvision-${svc}" && ((ok++))
+    step "Запуск контейнеров..."
+    echo ""
+    # Запускаем СИНХРОННО — ждём реального завершения
+    if ! docker compose up -d --remove-orphans 2>&1 | \
+        while read -r line; do echo -e "  ${GR}${line}${R}"; done; then
+        echo ""
+        warn "docker compose up вернул ошибку. Детали:"
+        docker compose logs --tail=20 2>&1 | tail -20
+        return 1
+    fi
+
+    # Ждём пока контейнеры реально поднимутся (healthcheck)
+    echo ""
+    step "Ожидание запуска сервисов..."
+    local max_wait=60
+    local waited=0
+    local all_up=false
+
+    while [[ $waited -lt $max_wait ]]; do
+        local running
+        running=$(docker compose ps 2>/dev/null | grep -cE "Up|running|healthy" || true)
+        printf "\r  ${GR}Запущено: %d/6  (%ds)${R}   " "$running" "$waited"
+        if [[ $running -ge 4 ]]; then
+            all_up=true
+            break
+        fi
+        sleep 3
+        ((waited+=3))
     done
     echo ""
-    if [[ $ok -ge 4 ]]; then
-        info "Все основные сервисы запущены"
+    echo ""
+
+    # Итоговый статус
+    echo -e "${W}━━━  Статус контейнеров  ━━━${R}"
+    echo ""
+    docker compose ps 2>/dev/null | tail -n +2 | while read -r line; do
+        local name status
+        name=$(echo "$line" | awk '{print $1}')
+        status=$(echo "$line" | awk '{print $4, $5, $6}')
+        if echo "$line" | grep -qE "Up|running|healthy"; then
+            echo -e "  ${G}●${R}  ${W}${name}${R}  ${GR}${status}${R}"
+        else
+            echo -e "  ${RED}●${R}  ${W}${name}${R}  ${Y}${status}${R}"
+        fi
+    done
+    echo ""
+
+    if $all_up; then
+        info "Сервисы запущены"
     else
-        warn "Некоторые сервисы не запустились. Проверь: ${Y}dv logs${R}"
+        warn "Не все сервисы поднялись за ${max_wait}с"
+        echo ""
+        echo -e "  Посмотри логи конкретного сервиса:"
+        echo -e "  ${Y}docker compose -f ${PANEL_DIR}/docker-compose.yml logs backend${R}"
+        echo -e "  ${Y}docker compose -f ${PANEL_DIR}/docker-compose.yml logs xray${R}"
+        echo -e "  ${Y}docker compose -f ${PANEL_DIR}/docker-compose.yml logs postgres${R}"
     fi
 }
 
@@ -629,28 +793,76 @@ self_update() {
 
 # ── Управление панелью ────────────────────────────────────
 panel_status() {
-    echo ""; echo -e "${C}━━━  Статус DarkVision  ━━━${R}"; echo ""
+    hr
+    echo -e "${C}  Статус контейнеров DarkVision${R}"
+    hr
     cd "${PANEL_DIR}" 2>/dev/null || { warn "Панель не установлена"; return; }
-    docker compose ps --format "  {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null
+
+    # Детальная таблица
+    echo ""
+    printf "  ${W}%-30s %-12s %-20s${R}\n" "Контейнер" "Статус" "Порты"
+    echo -e "  ${GR}$(printf '%.0s─' {1..60})${R}"
+
+    docker compose ps 2>/dev/null | tail -n +2 | while read -r line; do
+        local name status ports
+        name=$(echo "$line"  | awk '{print $1}')
+        ports=$(echo "$line" | grep -oE '[0-9]+\->[0-9]+/[a-z]+' | tr '\n' ' ')
+        if echo "$line" | grep -qE "Up|running|healthy"; then
+            status="${G}● running${R}"
+        elif echo "$line" | grep -qE "Exit|exited|stopped"; then
+            status="${RED}● stopped${R}"
+        else
+            status="${Y}● starting${R}"
+        fi
+        printf "  %-30s %-20b %-20s\n" "$name" "$status" "$ports"
+    done
+
+    echo ""
+    # Использование ресурсов
+    echo -e "  ${W}Ресурсы:${R}"
+    docker stats --no-stream --format \
+        "  {{.Name}}\tCPU: {{.CPUPerc}}\tRAM: {{.MemUsage}}" 2>/dev/null | \
+        grep darkvision | while read -r line; do
+            echo -e "  ${GR}${line}${R}"
+        done
+
     echo ""
     local domain; domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
-    local port;   port=$(grep PANEL_PORT "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
     local sub;    sub=$(grep SUB_BASE_URL "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
-    info "Панель:    ${C}https://${domain}${R}"
-    info "Подписки:  ${C}${sub}/TOKEN${R}"
+    info "Панель:   ${C}https://${domain}${R}"
+    info "Подписки: ${C}${sub}/TOKEN${R}"
+    hr
 }
 
 panel_logs() {
     cd "${PANEL_DIR}" 2>/dev/null || { warn "Панель не установлена"; return; }
-    echo -e "${Y}Контейнер:${R} 1)backend 2)xray 3)nginx 4)postgres 5)redis 0)все"
-    reading "Выбор:" c
+    hr
+    echo -e "${C}  Логи DarkVision${R}"
+    hr
+    echo ""
+    echo -e "  ${G}1.${R} backend  ${G}2.${R} xray  ${G}3.${R} nginx  ${G}4.${R} postgres  ${G}5.${R} redis  ${G}0.${R} все"
+    echo ""
+    reading "Контейнер [0-5]:" c
+
+    # Сколько строк показать
+    reading "Сколько строк? [100]:" lines
+    lines="${lines:-100}"
+
+    echo ""
+    hr
     case $c in
-        1) docker compose logs -f --tail=100 backend ;;
-        2) docker compose logs -f --tail=100 xray ;;
-        3) docker compose logs -f --tail=100 nginx ;;
-        4) docker compose logs -f --tail=100 postgres ;;
-        5) docker compose logs -f --tail=100 redis ;;
-        *) docker compose logs -f --tail=50 ;;
+        1) echo -e "${C}── backend ──${R}"; echo ""
+           docker compose logs --tail="$lines" -f backend 2>&1 ;;
+        2) echo -e "${C}── xray ──${R}"; echo ""
+           docker compose logs --tail="$lines" -f xray 2>&1 ;;
+        3) echo -e "${C}── nginx ──${R}"; echo ""
+           docker compose logs --tail="$lines" -f nginx 2>&1 ;;
+        4) echo -e "${C}── postgres ──${R}"; echo ""
+           docker compose logs --tail="$lines" -f postgres 2>&1 ;;
+        5) echo -e "${C}── redis ──${R}"; echo ""
+           docker compose logs --tail="$lines" -f redis 2>&1 ;;
+        *) echo -e "${C}── все сервисы ──${R}"; echo ""
+           docker compose logs --tail=50 -f 2>&1 ;;
     esac
 }
 
@@ -776,9 +988,10 @@ full_install() {
 
     step "=== 3/8: Файлы проекта ==="
     mkdir -p "${PANEL_DIR}"
-    # Скачать docker-compose.yml из репозитория
-    curl -fsSL "${REPO_URL}/docker-compose.yml" -o "${PANEL_DIR}/docker-compose.yml" 2>/dev/null || \
-        warn "Не удалось скачать docker-compose.yml — скопируй вручную"
+    # Пробуем скачать из репо, но создаём встроенную версию в любом случае
+    curl -fsSL "${REPO_URL}/docker-compose.yml" -o "${PANEL_DIR}/docker-compose.yml" 2>/dev/null
+    # create_docker_compose вызовется в start_stack если файл отсутствует или пустой
+    [[ ! -s "${PANEL_DIR}/docker-compose.yml" ]] && create_docker_compose
 
     step "=== 4/8: Конфигурация ==="
     create_env "$PANEL_DOMAIN" "$PANEL_PORT" "$VPN_PORT" "$SUB_DOMAIN"
@@ -876,10 +1089,16 @@ main_menu() {
         if [[ -f "${PANEL_DIR}/.env" ]]; then
             local domain; domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
             local sub; sub=$(grep SUB_BASE_URL "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
-            local running; running=$(docker compose -f "${PANEL_DIR}/docker-compose.yml" ps --status running 2>/dev/null | grep -c "running" || echo "0")
+            local running; running=$(docker compose -f "${PANEL_DIR}/docker-compose.yml" ps 2>/dev/null | grep -cE "Up|running|healthy" || echo "0")
             echo -e "  ${GR}Панель:${R}    ${C}https://${domain}${R}"
             echo -e "  ${GR}Подписки:${R}  ${C}${sub}/TOKEN${R}"
-            echo -e "  ${GR}Запущено:${R}  ${G}${running} контейнеров${R}"
+            if [[ "$running" -ge 4 ]]; then
+                echo -e "  ${GR}Запущено:${R}  ${G}${running} контейнеров${R}"
+            elif [[ "$running" -gt 0 ]]; then
+                echo -e "  ${GR}Запущено:${R}  ${Y}${running} контейнеров (не все)${R}"
+            else
+                echo -e "  ${GR}Запущено:${R}  ${RED}0 контейнеров — не запущено${R}"
+            fi
         else
             echo -e "  ${Y}● Панель не установлена${R}"
         fi
