@@ -5,7 +5,7 @@
 # ║         d3adwatch3r/darkvision/main/install.sh)          ║
 # ╚══════════════════════════════════════════════════════════╝
 
-SCRIPT_VERSION="1.1.2"
+SCRIPT_VERSION="1.1.3"
 PANEL_DIR="/opt/darkvision"
 SCRIPT_DIR="/usr/local/darkvision"
 BIN_LINK="/usr/local/bin/darkvision"
@@ -1089,7 +1089,10 @@ main_menu() {
         if [[ -f "${PANEL_DIR}/.env" ]]; then
             local domain; domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
             local sub; sub=$(grep SUB_BASE_URL "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
-            local running; running=$(docker compose -f "${PANEL_DIR}/docker-compose.yml" ps 2>/dev/null | grep -cE "Up|running|healthy" || echo "0")
+            local running=0
+            running=$(docker compose -f "${PANEL_DIR}/docker-compose.yml" ps 2>/dev/null \
+                | grep -cE "Up|running|healthy" 2>/dev/null) || true
+            [[ "$running" =~ ^[0-9]+$ ]] || running=0
             echo -e "  ${GR}Панель:${R}    ${C}https://${domain}${R}"
             echo -e "  ${GR}Подписки:${R}  ${C}${sub}/TOKEN${R}"
             if [[ "$running" -ge 4 ]]; then
