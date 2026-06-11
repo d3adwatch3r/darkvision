@@ -5,7 +5,7 @@
 # ║         d3adwatch3r/darkvision/main/install.sh)          ║
 # ╚══════════════════════════════════════════════════════════╝
 
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.2"
 PANEL_DIR="/opt/darkvision"
 SCRIPT_DIR="/usr/local/darkvision"
 BIN_LINK="/usr/local/bin/darkvision"
