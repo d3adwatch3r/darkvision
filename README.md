@@ -5,7 +5,7 @@
 ## Быстрый старт
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/YOUR_USERNAME/darkvision/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/d3adwatch3r/darkvision/main/install.sh)
 ```
 
 ## Архитектура

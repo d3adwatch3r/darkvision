@@ -1,694 +1,561 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════╗
 # ║           DarkVision VPN Panel Installer                 ║
-# ║        bash <(curl -Ls https://YOUR_REPO/install.sh)     ║
+# ║  bash <(curl -Ls https://raw.githubusercontent.com/      ║
+# ║         d3adwatch3r/darkvision/main/install.sh)          ║
 # ╚══════════════════════════════════════════════════════════╝
 
-SCRIPT_VERSION="1.0.0"
-SCRIPT_NAME="darkvision"
+SCRIPT_VERSION="1.1.0"
 PANEL_DIR="/opt/darkvision"
 SCRIPT_DIR="/usr/local/darkvision"
 BIN_LINK="/usr/local/bin/darkvision"
 LOGFILE="${SCRIPT_DIR}/install.log"
-REPO_URL="https://raw.githubusercontent.com/YOUR_USERNAME/darkvision/main"
+REPO_URL="https://raw.githubusercontent.com/d3adwatch3r/darkvision/main"
 SCRIPT_URL="${REPO_URL}/install.sh"
 
-# ─────────────────────────────────────────
-#  Цвета
-# ─────────────────────────────────────────
-R="\033[0m"
-G="\033[1;32m"
-Y="\033[1;33m"
-W="\033[1;37m"
-RED="\033[1;31m"
-C="\033[1;36m"
-GR="\033[0;90m"
-B="\033[1;34m"
+# ── Цвета ────────────────────────────────────────────────
+R="\033[0m"; G="\033[1;32m"; Y="\033[1;33m"
+W="\033[1;37m"; RED="\033[1;31m"; C="\033[1;36m"; GR="\033[0;90m"
 
-# ─────────────────────────────────────────
-#  Хелперы вывода
-# ─────────────────────────────────────────
 info()    { echo -e "${G}[✓]${R} ${W}$*${R}"; }
 warn()    { echo -e "${Y}[!]${R} ${Y}$*${R}"; }
 error()   { echo -e "${RED}[✗]${R} ${RED}$*${R}"; exit 1; }
 step()    { echo -e "${C}[→]${R} ${W}$*${R}"; }
-ask()     { echo -e "${G}[?]${R} ${Y}$*${R}"; }
-reading() { read -rp "$(ask "$1") " "$2"; }
-hr()      { echo -e "${GR}──────────────────────────────────────────────────────${R}"; }
+hr()      { echo -e "${GR}──────────────────────────────────────────────────${R}"; }
+reading() { read -rp "$(echo -e "${G}[?]${R} ${Y}$1${R} ")" "$2"; }
 
 banner() {
     clear
     echo -e "${C}"
-    echo -e "  ██████╗  █████╗ ██████╗ ██╗  ██╗    ██╗   ██╗██╗███████╗"
-    echo -e "  ██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝    ██║   ██║██║██╔════╝"
-    echo -e "  ██║  ██║███████║██████╔╝█████╔╝     ██║   ██║██║███████╗"
-    echo -e "  ██║  ██║██╔══██║██╔══██╗██╔═██╗     ╚██╗ ██╔╝██║╚════██║"
-    echo -e "  ██████╔╝██║  ██║██║  ██║██║  ██╗     ╚████╔╝ ██║███████║"
-    echo -e "  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝     ╚═══╝  ╚═╝╚══════╝"
+    echo "  ██████╗  █████╗ ██████╗ ██╗  ██╗    ██╗   ██╗██╗███████╗"
+    echo "  ██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝    ██║   ██║██║██╔════╝"
+    echo "  ██║  ██║███████║██████╔╝█████╔╝     ██║   ██║██║███████╗"
+    echo "  ██║  ██║██╔══██║██╔══██╗██╔═██╗     ╚██╗ ██╔╝██║╚════██║"
+    echo "  ██████╔╝██║  ██║██║  ██║██║  ██╗     ╚████╔╝ ██║███████║"
+    echo "  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝     ╚═══╝  ╚═╝╚══════╝"
     echo -e "${R}"
-    echo -e "             ${W}VPN Panel${R} ${GR}v${SCRIPT_VERSION}${R}  —  ${GR}by DarkVision Team${R}"
+    echo -e "          ${W}VPN Panel${R} ${GR}v${SCRIPT_VERSION}${R}  —  ${GR}github.com/d3adwatch3r/darkvision${R}"
     hr
 }
 
 spinner() {
-    local pid=$1
-    local msg="${2:-Подождите...}"
+    local pid=$1 msg="${2:-Подождите...}"
     local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local i=0
     while kill -0 "$pid" 2>/dev/null; do
         printf "\r${C}${frames[$i]}${R}  ${W}%s${R}   " "$msg"
-        i=$(( (i+1) % ${#frames[@]} ))
-        sleep 0.1
+        i=$(( (i+1) % 10 )); sleep 0.1
     done
     printf "\r${G}✓${R}  ${W}%s${R}   \n" "$msg"
 }
 
-# ─────────────────────────────────────────
-#  Проверки
-# ─────────────────────────────────────────
-check_root() {
-    [[ $EUID -ne 0 ]] && error "Запусти скрипт от root: sudo bash install.sh"
-}
-
+# ── Проверки ─────────────────────────────────────────────
+check_root() { [[ $EUID -ne 0 ]] && error "Нужен root: sudo bash install.sh"; }
 check_os() {
-    if ! grep -qE "bullseye|bookworm|jammy|noble|focal|trixie" /etc/os-release 2>/dev/null; then
-        error "Поддерживаются: Ubuntu 20/22/24, Debian 11/12/13"
-    fi
+    grep -qE "bullseye|bookworm|jammy|noble|focal|trixie" /etc/os-release 2>/dev/null || \
+        error "Поддерживается: Ubuntu 20/22/24, Debian 11/12/13"
 }
 
-check_arch() {
-    local arch
-    arch=$(uname -m)
-    [[ "$arch" != "x86_64" && "$arch" != "aarch64" ]] && \
-        error "Поддерживается только x86_64 и aarch64 (текущая: $arch)"
-}
-
-check_requirements() {
-    check_root
-    check_os
-    check_arch
-    [[ $(free -m | awk '/^Mem:/{print $2}') -lt 512 ]] && \
-        warn "Мало RAM (< 512MB). Рекомендуется >= 1GB"
-}
-
-# ─────────────────────────────────────────
-#  Установка зависимостей
-# ─────────────────────────────────────────
+# ── Зависимости ──────────────────────────────────────────
 install_deps() {
     step "Обновление пакетов..."
-    apt-get update -qq &
-    spinner $! "apt update"
-
-    step "Установка зависимостей..."
-    apt-get install -y -qq \
-        curl wget git openssl ufw \
-        ca-certificates gnupg lsb-release \
-        jq net-tools htop > /dev/null 2>&1 &
-    spinner $! "curl, openssl, ufw, jq..."
+    apt-get update -qq &>/dev/null
+    apt-get install -y -qq curl wget git openssl ufw ca-certificates \
+        gnupg lsb-release jq socat cron &>/dev/null &
+    spinner $! "Установка зависимостей..."
 }
 
 install_docker() {
     if command -v docker &>/dev/null; then
-        info "Docker уже установлен: $(docker --version | cut -d' ' -f3 | tr -d ',')"
-        return
+        info "Docker уже установлен"; return
     fi
-
     step "Установка Docker..."
-    curl -fsSL https://get.docker.com | sh > /dev/null 2>&1 &
-    spinner $! "Docker Engine"
-
-    systemctl enable docker --quiet
-    systemctl start docker
-
-    if ! command -v docker compose &>/dev/null && ! docker compose version &>/dev/null 2>&1; then
-        step "Установка Docker Compose plugin..."
-        apt-get install -y -qq docker-compose-plugin > /dev/null 2>&1
-    fi
-
-    info "Docker установлен: $(docker --version)"
+    curl -fsSL https://get.docker.com | sh &>/dev/null &
+    spinner $! "Docker Engine..."
+    systemctl enable --now docker &>/dev/null
+    info "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
 }
 
-# ─────────────────────────────────────────
-#  Генераторы
-# ─────────────────────────────────────────
-gen_password() {
-    local len="${1:-32}"
-    tr -dc 'A-Za-z0-9@#%^&*_+=' < /dev/urandom | head -c "$len"
-}
-
-gen_hex() {
-    local len="${1:-32}"
-    openssl rand -hex "$len"
-}
-
-gen_jwt_secret() {
-    openssl rand -base64 64 | tr -d '\n/+=' | head -c 80
-}
-
-gen_xray_keys() {
-    # Генерировать Reality keypair через временный контейнер xray
-    docker run --rm ghcr.io/xtls/xray-core:latest x25519 2>/dev/null || {
-        # Fallback через openssl если Docker ещё не готов
-        local privkey hex
-        privkey=$(openssl genpkey -algorithm X25519 2>/dev/null | openssl pkey -outform DER 2>/dev/null | tail -c 32 | xxd -p -c 32)
-        echo "Private key: $privkey"
-        echo "Public key:  (установи xray для генерации)"
-    }
-}
-
-# ─────────────────────────────────────────
-#  Настройка системы
-# ─────────────────────────────────────────
+# ── Системные настройки ───────────────────────────────────
 setup_bbr() {
-    if sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q bbr; then
-        info "BBR уже активен"
-        return
-    fi
-
-    step "Включение BBR (TCP congestion control)..."
+    sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q bbr && \
+        { info "BBR уже активен"; return; }
+    step "Включение BBR..."
     cat >> /etc/sysctl.conf << 'EOF'
-
-# DarkVision — TCP BBR
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_fastopen = 3
-net.core.somaxconn = 32768
-net.ipv4.tcp_max_syn_backlog = 8192
-net.ipv4.tcp_rmem = 4096 87380 67108864
-net.ipv4.tcp_wmem = 4096 65536 67108864
-net.ipv4.tcp_mtu_probing = 1
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.ipv4.tcp_fastopen=3
+net.core.somaxconn=32768
 EOF
-    sysctl -p > /dev/null 2>&1
+    sysctl -p &>/dev/null
     info "BBR активирован"
 }
 
-setup_ufw() {
-    local panel_port="${1:-8443}"
-    local vpn_port="${2:-443}"
-
-    step "Настройка UFW firewall..."
-
-    ufw --force reset > /dev/null 2>&1
-
-    # Базовые правила
-    ufw default deny incoming > /dev/null
-    ufw default allow outgoing > /dev/null
-
-    # SSH (определяем текущий порт)
-    local ssh_port
-    ssh_port=$(ss -tnlp | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
-    ssh_port=${ssh_port:-22}
-    ufw allow "${ssh_port}/tcp" comment "SSH" > /dev/null
-
-    # Панель
-    ufw allow "${panel_port}/tcp" comment "DarkVision Panel" > /dev/null
-
-    # VPN
-    ufw allow "${vpn_port}/tcp" comment "DarkVision VPN" > /dev/null
-    ufw allow "${vpn_port}/udp" comment "DarkVision VPN UDP" > /dev/null
-
-    # Xray API — только localhost (не открываем наружу!)
-    # 10085 остаётся в Docker сети
-
-    ufw --force enable > /dev/null 2>&1
-    info "UFW активирован. Открытые порты: SSH(${ssh_port}), Panel(${panel_port}), VPN(${vpn_port})"
-}
-
 disable_ipv6() {
-    step "Отключение IPv6 (предотвращение утечек)..."
     cat >> /etc/sysctl.conf << 'EOF'
-
-# DarkVision — Disable IPv6
-net.ipv6.conf.all.disable_ipv6 = 1
-net.ipv6.conf.default.disable_ipv6 = 1
-net.ipv6.conf.lo.disable_ipv6 = 1
+net.ipv6.conf.all.disable_ipv6=1
+net.ipv6.conf.default.disable_ipv6=1
 EOF
-    sysctl -p > /dev/null 2>&1
+    sysctl -p &>/dev/null
     info "IPv6 отключён"
 }
 
-# ─────────────────────────────────────────
-#  SSL сертификаты
-# ─────────────────────────────────────────
-setup_ssl_selfsigned() {
-    local domain="${1:-localhost}"
+setup_ufw() {
+    local panel_port="${1:-9443}" vpn_port="${2:-2053}"
+    step "Настройка UFW..."
+    ufw --force reset &>/dev/null
+    ufw default deny incoming &>/dev/null
+    ufw default allow outgoing &>/dev/null
+    local ssh_port; ssh_port=$(ss -tnlp | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
+    ufw allow "${ssh_port:-22}/tcp"    comment "SSH"              &>/dev/null
+    ufw allow "${panel_port}/tcp"      comment "DarkVision Panel" &>/dev/null
+    ufw allow "${vpn_port}/tcp"        comment "DarkVision VPN"   &>/dev/null
+    ufw allow "${vpn_port}/udp"        comment "DarkVision VPN"   &>/dev/null
+    ufw allow "80/tcp"                 comment "ACME/HTTP"        &>/dev/null
+    ufw --force enable &>/dev/null
+    info "UFW: SSH(${ssh_port:-22}), Panel(${panel_port}), VPN(${vpn_port})"
+}
+
+# ── Генераторы ────────────────────────────────────────────
+gen_password() { tr -dc 'A-Za-z0-9@#%^&*_+=' < /dev/urandom | head -c "${1:-32}"; }
+gen_jwt()      { openssl rand -base64 64 | tr -d '\n/+=' | head -c 80; }
+
+# ╔══════════════════════════════════════════════════════════╗
+# ║           SSL — ПРОВЕРКА И ПОЛУЧЕНИЕ СЕРТИФИКАТА        ║
+# ╚══════════════════════════════════════════════════════════╝
+
+# Проверить — есть ли рабочий SSL у домена
+check_ssl_cert() {
+    local domain="$1"
+    local result
+    result=$(echo | openssl s_client -connect "${domain}:443" \
+        -servername "$domain" 2>/dev/null | \
+        openssl x509 -noout -dates 2>/dev/null)
+
+    if [[ -z "$result" ]]; then
+        return 1   # нет сертификата
+    fi
+
+    # Проверить срок действия
+    local expiry
+    expiry=$(echo "$result" | grep "notAfter" | cut -d= -f2)
+    local expiry_epoch; expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || date -j -f "%b %d %T %Y %Z" "$expiry" +%s 2>/dev/null)
+    local now_epoch; now_epoch=$(date +%s)
+
+    if [[ $expiry_epoch -gt $now_epoch ]]; then
+        return 0   # сертификат есть и действующий
+    fi
+    return 1       # истёк
+}
+
+# Получить Let's Encrypt сертификат через acme.sh (standalone)
+get_acme_cert() {
+    local domain="$1" email="$2"
     local ssl_dir="${PANEL_DIR}/nginx/ssl"
-
     mkdir -p "$ssl_dir"
-    step "Генерация self-signed SSL для ${domain}..."
 
+    step "Установка acme.sh..."
+    if [[ ! -f ~/.acme.sh/acme.sh ]]; then
+        curl -fsSL https://get.acme.sh | sh -s email="$email" &>/dev/null &
+        spinner $! "Установка acme.sh..."
+    fi
+
+    # Использовать ~/.acme.sh/acme.sh
+    local acme="$HOME/.acme.sh/acme.sh"
+    [[ ! -f "$acme" ]] && { warn "acme.sh не установился"; return 1; }
+
+    step "Получение сертификата для ${domain}..."
+
+    # Если порт 80 занят другим nginx — временно остановим только если нужно
+    local port80_busy=false
+    ss -tlnp | grep -q ':80 ' && port80_busy=true
+
+    if $port80_busy; then
+        # Попробовать webroot если уже есть nginx
+        warn "Порт 80 занят, пробую через webroot..."
+        mkdir -p /var/www/acme
+        # Добавить temporary location в nginx если он запущен
+        $acme --issue -d "$domain" \
+            --webroot /var/www/acme \
+            --server letsencrypt \
+            --force 2>&1 | tail -5
+    else
+        $acme --issue -d "$domain" \
+            --standalone \
+            --server letsencrypt \
+            --force 2>&1 | tail -5
+    fi
+
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        warn "Не удалось получить сертификат автоматически"
+        return 1
+    fi
+
+    # Установить сертификат
+    $acme --install-cert -d "$domain" \
+        --key-file   "${ssl_dir}/privkey.pem" \
+        --fullchain-file "${ssl_dir}/fullchain.pem" \
+        --reloadcmd  "docker compose -f ${PANEL_DIR}/docker-compose.yml restart nginx 2>/dev/null" \
+        2>/dev/null
+
+    # Автопродление через cron
+    (crontab -l 2>/dev/null | grep -v acme; \
+     echo "0 3 * * * $acme --cron --home ~/.acme.sh > /dev/null 2>&1") | crontab -
+
+    info "Сертификат получен и настроено автопродление (каждые 60 дней)"
+    return 0
+}
+
+# Сгенерировать self-signed
+make_selfsigned() {
+    local domain="$1"
+    local ssl_dir="${PANEL_DIR}/nginx/ssl"
+    mkdir -p "$ssl_dir"
+    step "Генерация self-signed SSL..."
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
         -keyout "${ssl_dir}/privkey.pem" \
         -out    "${ssl_dir}/fullchain.pem" \
-        -subj "/CN=${domain}/O=DarkVision/C=RU" \
-        -extensions v3_req \
-        -config <(cat <<SSLEOF
-[req]
-distinguished_name = req_distinguished_name
-x509_extensions = v3_req
-prompt = no
-[req_distinguished_name]
-CN = ${domain}
-[v3_req]
-subjectAltName = @alt_names
-[alt_names]
-DNS.1 = ${domain}
-DNS.2 = *.${domain}
-IP.1 = 127.0.0.1
-SSLEOF
-) 2>/dev/null
-
-    info "SSL сертификат создан: ${ssl_dir}/"
+        -subj   "/CN=${domain}/O=DarkVision/C=RU" \
+        -addext "subjectAltName=DNS:${domain},IP:127.0.0.1" 2>/dev/null
+    info "Self-signed SSL создан (10 лет)"
 }
 
-setup_ssl_acme() {
+# Главная функция настройки SSL — проверяет → спрашивает → получает
+setup_ssl_auto() {
     local domain="$1"
-    local email="$2"
     local ssl_dir="${PANEL_DIR}/nginx/ssl"
 
-    mkdir -p "$ssl_dir"
-    step "Получение Let's Encrypt сертификата для ${domain}..."
+    echo ""
+    step "Проверка SSL сертификата для ${C}${domain}${R}..."
 
-    if ! command -v acme.sh &>/dev/null; then
-        curl -fsSL https://get.acme.sh | sh -s email="$email" > /dev/null 2>&1 &
-        spinner $! "Установка acme.sh"
-        source ~/.acme.sh/acme.sh.env 2>/dev/null || export PATH="$HOME/.acme.sh:$PATH"
+    if check_ssl_cert "$domain"; then
+        info "SSL сертификат для ${domain} уже существует и действителен"
+        echo ""
+        echo -e "  Использовать существующий? Или перевыпустить?"
+        echo -e "  ${G}1.${R} Использовать существующий"
+        echo -e "  ${G}2.${R} Получить новый через Let's Encrypt"
+        echo -e "  ${G}3.${R} Self-signed (без домена)"
+        reading "Выбор [1]:" ssl_choice
+        ssl_choice="${ssl_choice:-1}"
+    else
+        warn "SSL сертификат не найден или истёк"
+        echo ""
+        echo -e "  Как получить сертификат?"
+        echo -e "  ${G}1.${R} Let's Encrypt (автоматически через acme.sh) ${G}← рекомендуется${R}"
+        echo -e "  ${G}2.${R} Self-signed (для тестов, браузер будет ругаться)"
+        echo -e "  ${G}3.${R} Пропустить (настрою сам позже)"
+        reading "Выбор [1]:" ssl_choice
+        ssl_choice="${ssl_choice:-1}"
     fi
 
-    ~/.acme.sh/acme.sh --issue --standalone \
-        -d "$domain" --force \
-        --server letsencrypt 2>&1 | tail -5
-
-    ~/.acme.sh/acme.sh --install-cert -d "$domain" \
-        --key-file   "${ssl_dir}/privkey.pem" \
-        --fullchain-file "${ssl_dir}/fullchain.pem" \
-        --reloadcmd "docker compose -f ${PANEL_DIR}/docker-compose.yml restart nginx" \
-        2>/dev/null
-
-    # Auto-renew cron
-    (crontab -l 2>/dev/null; echo "0 3 * * * ~/.acme.sh/acme.sh --cron --home ~/.acme.sh > /dev/null 2>&1") | crontab -
-
-    info "SSL сертификат получен и настроено автопродление"
+    case "$ssl_choice" in
+        1)
+            # Проверить что файлы уже есть (существующий)
+            if [[ -f "${ssl_dir}/fullchain.pem" ]]; then
+                info "Используем существующий сертификат"
+            else
+                # Значит выбрали Let's Encrypt при отсутствующем серте
+                reading "Email для Let's Encrypt (для уведомлений):" LE_EMAIL
+                LE_EMAIL="${LE_EMAIL:-admin@${domain}}"
+                if ! get_acme_cert "$domain" "$LE_EMAIL"; then
+                    warn "Автоматическое получение не удалось. Создаю self-signed..."
+                    make_selfsigned "$domain"
+                fi
+            fi
+            ;;
+        2)
+            reading "Email для Let's Encrypt:" LE_EMAIL
+            LE_EMAIL="${LE_EMAIL:-admin@${domain}}"
+            if ! get_acme_cert "$domain" "$LE_EMAIL"; then
+                warn "Не удалось получить Let's Encrypt. Создаю self-signed..."
+                make_selfsigned "$domain"
+            fi
+            ;;
+        3)
+            make_selfsigned "$domain"
+            ;;
+        *)
+            warn "SSL пропущен — панель будет работать на HTTP"
+            ;;
+    esac
 }
 
-# ─────────────────────────────────────────
-#  Генерация .env
-# ─────────────────────────────────────────
+# ── Генерация конфигов ────────────────────────────────────
 create_env() {
-    local domain="${1:-localhost}"
-    local panel_port="${2:-8443}"
+    local domain="$1" panel_port="$2" vpn_port="$3" sub_domain="$4"
 
-    step "Генерация секретных ключей..."
+    local db_pass; db_pass=$(gen_password 32)
+    local jwt_secret; jwt_secret=$(gen_jwt)
+    local redis_pass; redis_pass=$(gen_password 24)
+    local tg_secret; tg_secret=$(openssl rand -hex 16)
 
-    local db_pass jwt_secret redis_pass tg_secret
-    db_pass=$(gen_password 32)
-    jwt_secret=$(gen_jwt_secret)
-    redis_pass=$(gen_password 24)
-    tg_secret=$(gen_hex 16)
+    # Формат подписки: https://SUB_DOMAIN/TOKEN (без /sub/)
+    local sub_base_url="https://${sub_domain}"
 
     cat > "${PANEL_DIR}/.env" << EOF
-# ── Сгенерировано автоматически $(date '+%Y-%m-%d %H:%M:%S') ──
+# Сгенерировано: $(date '+%Y-%m-%d %H:%M:%S')
 
-# PostgreSQL
 POSTGRES_HOST=darkvision-postgres
 POSTGRES_PORT=5432
 POSTGRES_DB=darkvision
 POSTGRES_USER=darkvision
 POSTGRES_PASSWORD=${db_pass}
 
-# Redis
 REDIS_HOST=darkvision-redis
 REDIS_PORT=6379
 REDIS_PASSWORD=${redis_pass}
 
-# JWT
 JWT_SECRET=${jwt_secret}
 JWT_ACCESS_TTL=15m
 JWT_REFRESH_TTL=168h
 
-# App
 APP_ENV=production
 APP_PORT=8080
 LOG_LEVEL=info
 ALLOWED_ORIGINS=https://${domain}
 
-# Xray
 XRAY_CONFIG_PATH=/xray-config/config.json
 XRAY_API_HOST=darkvision-xray
 XRAY_API_PORT=10085
 
-# Panel
 PANEL_PORT=${panel_port}
-PANEL_HTTP_PORT=80
+PANEL_HTTP_PORT=9080
 PANEL_DOMAIN=${domain}
-SUB_BASE_URL=https://${domain}/sub
 
-# VPN
-VLESS_PORT=443
+# Ссылки подписок: https://${sub_domain}/TOKEN
+SUB_BASE_URL=${sub_base_url}
 
-# Telegram (заполни позже)
+VLESS_PORT=${vpn_port}
+
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_SECRET=${tg_secret}
 
-# Rate Limit
 RATE_LIMIT_MAX=100
 RATE_LIMIT_WINDOW=60
 
 ADMIN_SETUP_DONE=false
 EOF
-
     chmod 600 "${PANEL_DIR}/.env"
     info ".env создан"
 }
 
-# ─────────────────────────────────────────
-#  Генерация Xray конфига
-# ─────────────────────────────────────────
 create_xray_config() {
-    step "Генерация Xray Reality конфига..."
-
+    step "Генерация Xray Reality ключей..."
     mkdir -p "${PANEL_DIR}/xray/config"
 
-    # Генерация Reality ключей
-    local xray_keys
-    xray_keys=$(docker run --rm ghcr.io/xtls/xray-core:latest x25519 2>/dev/null)
+    local xray_keys; xray_keys=$(docker run --rm ghcr.io/xtls/xray-core:latest x25519 2>/dev/null)
+    local privkey; privkey=$(echo "$xray_keys" | grep "Private" | awk '{print $3}')
+    local pubkey;  pubkey=$(echo  "$xray_keys" | grep "Public"  | awk '{print $3}')
+    local shortid; shortid=$(openssl rand -hex 4)
 
-    local privkey pubkey shortid
-    privkey=$(echo "$xray_keys" | grep "Private" | awk '{print $3}')
-    pubkey=$(echo  "$xray_keys" | grep "Public"  | awk '{print $3}')
-    shortid=$(openssl rand -hex 4)
-
-    # Сохранить ключи в файл (нужны для ссылок подписки)
     cat > "${PANEL_DIR}/xray/reality_keys.txt" << EOF
-# DarkVision — Reality Keys
-# Сгенерировано: $(date '+%Y-%m-%d %H:%M:%S')
 REALITY_PRIVATE_KEY=${privkey}
 REALITY_PUBLIC_KEY=${pubkey}
 REALITY_SHORT_ID=${shortid}
 EOF
     chmod 600 "${PANEL_DIR}/xray/reality_keys.txt"
 
-    # Xray config.json
     cat > "${PANEL_DIR}/xray/config/config.json" << EOF
 {
-  "log": {
-    "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
-    "error":  "/var/log/xray/error.log"
-  },
-  "api": {
-    "tag": "api",
-    "services": ["HandlerService", "StatsService", "LoggerService"]
-  },
+  "log": { "loglevel": "warning", "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log" },
+  "api": { "tag": "api", "services": ["HandlerService","StatsService","LoggerService"] },
   "stats": {},
   "policy": {
-    "levels": {
-      "0": {
-        "handshake": 4,
-        "connIdle": 300,
-        "statsUserUplink": true,
-        "statsUserDownlink": true
-      }
-    },
-    "system": {
-      "statsInboundUplink":    true,
-      "statsInboundDownlink":  true,
-      "statsOutboundUplink":   true,
-      "statsOutboundDownlink": true
-    }
+    "levels": { "0": { "handshake": 4, "connIdle": 300, "statsUserUplink": true, "statsUserDownlink": true } },
+    "system": { "statsInboundUplink": true, "statsInboundDownlink": true, "statsOutboundUplink": true, "statsOutboundDownlink": true }
   },
   "inbounds": [
+    { "tag": "api", "listen": "0.0.0.0", "port": 10085, "protocol": "dokodemo-door", "settings": { "address": "127.0.0.1" } },
     {
-      "tag":      "api",
-      "listen":   "0.0.0.0",
-      "port":     10085,
-      "protocol": "dokodemo-door",
-      "settings": {"address": "127.0.0.1"}
-    },
-    {
-      "tag":      "vless-reality",
-      "listen":   "0.0.0.0",
-      "port":     443,
-      "protocol": "vless",
-      "settings": {
-        "clients":    [],
-        "decryption": "none"
-      },
+      "tag": "vless-reality", "listen": "0.0.0.0", "port": 443, "protocol": "vless",
+      "settings": { "clients": [], "decryption": "none" },
       "streamSettings": {
-        "network":  "tcp",
-        "security": "reality",
+        "network": "tcp", "security": "reality",
         "realitySettings": {
-          "show":        false,
-          "dest":        "microsoft.com:443",
-          "xver":        0,
-          "serverNames": ["microsoft.com", "www.microsoft.com"],
-          "privateKey":  "${privkey}",
-          "shortIds":    ["${shortid}"]
+          "show": false, "dest": "microsoft.com:443", "xver": 0,
+          "serverNames": ["microsoft.com","www.microsoft.com"],
+          "privateKey": "${privkey}", "shortIds": ["${shortid}"]
         },
-        "tcpSettings": {"header": {"type": "none"}}
+        "tcpSettings": { "header": { "type": "none" } }
       },
-      "sniffing": {
-        "enabled":     true,
-        "destOverride": ["http", "tls", "quic"]
-      }
+      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] }
     }
   ],
   "outbounds": [
-    {"tag": "direct", "protocol": "freedom"},
-    {"tag": "block",  "protocol": "blackhole"}
+    { "tag": "direct", "protocol": "freedom" },
+    { "tag": "block",  "protocol": "blackhole" }
   ],
   "routing": {
-    "rules": [
-      {
-        "type":        "field",
-        "inboundTag":  ["api"],
-        "outboundTag": "api"
-      }
-    ]
+    "rules": [ { "type": "field", "inboundTag": ["api"], "outboundTag": "api" } ]
   }
 }
 EOF
 
     info "Xray конфиг создан"
-    info "Reality Public Key: ${C}${pubkey}${R}"
-    info "Reality Short ID:   ${C}${shortid}${R}"
-    echo ""
-    warn "Сохрани ключи: ${PANEL_DIR}/xray/reality_keys.txt"
+    info "Public Key: ${C}${pubkey}${R}"
+    info "Short ID:   ${C}${shortid}${R}"
 }
 
-# ─────────────────────────────────────────
-#  Nginx конфиг
-# ─────────────────────────────────────────
 create_nginx_config() {
-    local domain="${1:-localhost}"
-    local panel_port="${2:-8443}"
+    local panel_domain="$1" panel_port="$2" sub_domain="$3"
+    mkdir -p "${PANEL_DIR}/nginx/conf.d" "${PANEL_DIR}/nginx/ssl"
 
-    mkdir -p "${PANEL_DIR}/nginx/conf.d"
-    mkdir -p "${PANEL_DIR}/nginx/ssl"
-
-    # Nginx Dockerfile
     cat > "${PANEL_DIR}/nginx/Dockerfile" << 'EOF'
 FROM nginx:1.27-alpine
-RUN rm /etc/nginx/conf.d/default.conf
+RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/nginx.conf
 EXPOSE 80 443
 CMD ["nginx", "-g", "daemon off;"]
 EOF
 
-    # Основной nginx.conf
     cat > "${PANEL_DIR}/nginx/nginx.conf" << 'EOF'
 user nginx;
 worker_processes auto;
 worker_rlimit_nofile 65535;
 error_log /var/log/nginx/error.log warn;
 pid /var/run/nginx.pid;
-
-events {
-    worker_connections 4096;
-    multi_accept on;
-    use epoll;
-}
-
+events { worker_connections 4096; multi_accept on; use epoll; }
 http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-
-    # Security
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
     server_tokens off;
-    add_header X-Frame-Options        "DENY"            always;
-    add_header X-Content-Type-Options "nosniff"         always;
-    add_header X-XSS-Protection       "1; mode=block"   always;
-    add_header Referrer-Policy        "no-referrer"     always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-
-    # Performance
-    sendfile           on;
-    tcp_nopush         on;
-    tcp_nodelay        on;
-    keepalive_timeout  65;
-    gzip               on;
-    gzip_vary          on;
-    gzip_types         text/plain text/css application/json application/javascript;
-
-    # Rate limiting
-    limit_req_zone $binary_remote_addr zone=api:10m rate=30r/m;
+    sendfile on; tcp_nopush on; tcp_nodelay on; keepalive_timeout 65;
+    gzip on; gzip_vary on; gzip_types text/plain text/css application/json application/javascript;
+    limit_req_zone $binary_remote_addr zone=api:10m   rate=30r/m;
     limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;
-
-    # Logging
-    log_format main '$remote_addr - [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" rt=$request_time';
+    log_format main '$remote_addr [$time_local] "$request" $status $body_bytes_sent rt=$request_time';
     access_log /var/log/nginx/access.log main;
-
     include /etc/nginx/conf.d/*.conf;
 }
 EOF
 
-    # Virtual host
+    # Виртуальный хост панели
     cat > "${PANEL_DIR}/nginx/conf.d/panel.conf" << EOF
-# ── HTTP → HTTPS redirect ──────────────────────────────
 server {
     listen 80;
-    server_name ${domain};
-    return 301 https://\$host\$request_uri;
+    server_name ${panel_domain} ${sub_domain};
+    location /.well-known/acme-challenge/ { root /var/www/acme; }
+    location / { return 301 https://\$host\$request_uri; }
 }
 
-# ── HTTPS Panel ────────────────────────────────────────
+# ── Панель управления ─────────────────────────────────────
 server {
-    listen 443 ssl;
-    http2  on;
-    server_name ${domain};
-
+    listen 443 ssl; http2 on;
+    server_name ${panel_domain};
     ssl_certificate     /etc/nginx/ssl/fullchain.pem;
     ssl_certificate_key /etc/nginx/ssl/privkey.pem;
-    ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         HIGH:!aNULL:!MD5;
-    ssl_session_cache   shared:SSL:10m;
-    ssl_session_timeout 10m;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_session_cache shared:SSL:10m;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
 
-    # ── Subscription (публично) ──────────────────────
     location /sub/ {
-        proxy_pass         http://darkvision-backend:8080/sub/;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        # Без rate limit — клиенты опрашивают часто
+        proxy_pass http://darkvision-backend:8080/sub/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
-
-    # ── API ──────────────────────────────────────────
     location /api/ {
         limit_req zone=api burst=20 nodelay;
-        proxy_pass         http://darkvision-backend:8080/api/;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_pass http://darkvision-backend:8080/api/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 30s;
     }
-
-    # ── Login endpoint (строгий лимит) ───────────────
     location /api/v1/auth/login {
         limit_req zone=login burst=5 nodelay;
         proxy_pass http://darkvision-backend:8080/api/v1/auth/login;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
     }
-
-    # ── Health ────────────────────────────────────────
-    location /health {
-        proxy_pass http://darkvision-backend:8080/health;
-        access_log off;
-    }
-
-    # ── Frontend ─────────────────────────────────────
+    location /health { proxy_pass http://darkvision-backend:8080/health; access_log off; }
     location / {
-        proxy_pass         http://darkvision-frontend:3000/;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade    \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
+        proxy_pass http://darkvision-frontend:3000/;
+        proxy_set_header Host \$host;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
+}
+
+# ── CDN домен подписок ────────────────────────────────────
+# Ссылки вида: https://${sub_domain}/TOKEN
+server {
+    listen 443 ssl; http2 on;
+    server_name ${sub_domain};
+    ssl_certificate     /etc/nginx/ssl/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # Убрать лишние заголовки чтобы не деанонимизировать подписки
+    server_tokens off;
+    add_header X-Robots-Tag "noindex, nofollow" always;
+
+    # /TOKEN → /sub/TOKEN на backend
+    location ~* ^/([a-f0-9]{32})\$ {
+        proxy_pass http://darkvision-backend:8080/sub/\$1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        # Поддержка query string (?format=clash)
+        proxy_pass_request_args on;
+    }
+
+    # Всё остальное — 404 (не светить панель)
+    location / { return 404; }
 }
 EOF
 
     info "Nginx конфиг создан"
 }
 
-# ─────────────────────────────────────────
-#  Скопировать файлы проекта
-# ─────────────────────────────────────────
-deploy_project_files() {
-    step "Разворачиваю файлы DarkVision..."
-
-    mkdir -p "${PANEL_DIR}"
-
-    # Скачать docker-compose.yml если его нет
-    if [[ ! -f "${PANEL_DIR}/docker-compose.yml" ]]; then
-        curl -fsSL "${REPO_URL}/docker-compose.yml" -o "${PANEL_DIR}/docker-compose.yml" 2>/dev/null || {
-            warn "Не удалось скачать docker-compose.yml с репозитория"
-            warn "Скопируй вручную в ${PANEL_DIR}/"
-        }
-    fi
-
-    info "Файлы проекта готовы в ${PANEL_DIR}"
-}
-
-# ─────────────────────────────────────────
-#  Запуск стека
-# ─────────────────────────────────────────
+# ── Запуск стека ──────────────────────────────────────────
 start_stack() {
-    cd "${PANEL_DIR}" || error "Директория ${PANEL_DIR} не найдена"
-
-    step "Скачиваю Docker образы (первый раз долго)..."
-    docker compose pull 2>&1 | grep -E "Pull complete|already" | while read -r line; do
-        echo -e "  ${GR}${line}${R}"
-    done
-
+    cd "${PANEL_DIR}" || error "Нет папки ${PANEL_DIR}"
+    step "Скачиваю образы..."
+    docker compose pull &>/dev/null &
+    spinner $! "Docker pull..."
     step "Запуск контейнеров..."
-    docker compose up -d --remove-orphans 2>&1 &
-    spinner $! "Запуск DarkVision..."
+    docker compose up -d --remove-orphans &>/dev/null &
+    spinner $! "Старт DarkVision..."
+    sleep 8
 
-    sleep 5
+    echo ""
+    echo -e "${W}Статус контейнеров:${R}"
+    docker compose ps --format "  {{.Name}}\t{{.Status}}" 2>/dev/null | \
+        awk '{printf "  %-35s %s\n", $1, $2}'
 
-    # Проверка
-    local failed=()
-    for svc in postgres redis xray backend frontend nginx; do
-        local status
-        status=$(docker compose ps --status running 2>/dev/null | grep "darkvision-${svc}" | wc -l)
-        if [[ $status -eq 0 ]]; then
-            failed+=("$svc")
-        fi
+    # Итоговая проверка
+    local ok=0
+    for svc in postgres redis xray backend; do
+        docker compose ps --status running 2>/dev/null | grep -q "darkvision-${svc}" && ((ok++))
     done
-
-    if [[ ${#failed[@]} -gt 0 ]]; then
-        warn "Не запустились: ${failed[*]}"
-        warn "Логи: docker compose -f ${PANEL_DIR}/docker-compose.yml logs"
+    echo ""
+    if [[ $ok -ge 4 ]]; then
+        info "Все основные сервисы запущены"
     else
-        info "Все контейнеры запущены"
+        warn "Некоторые сервисы не запустились. Проверь: ${Y}dv logs${R}"
     fi
 }
 
-# ─────────────────────────────────────────
-#  Первичная настройка admin
-# ─────────────────────────────────────────
+# ── Создание первого администратора ──────────────────────
 create_first_admin() {
     echo ""
-    echo -e "${C}━━━  Создание администратора панели  ━━━${R}"
+    echo -e "${C}━━━  Создание администратора  ━━━${R}"
     echo ""
-
     reading "Имя администратора (мин. 3 символа):" ADMIN_USER
     while [[ ${#ADMIN_USER} -lt 3 ]]; do
         warn "Минимум 3 символа"
         reading "Имя администратора:" ADMIN_USER
     done
 
-    local use_gen
-    reading "Сгенерировать случайный пароль? [Y/n]:" use_gen
-    if [[ "$use_gen" =~ ^[Nn]$ ]]; then
+    local gen_pass
+    reading "Сгенерировать пароль автоматически? [Y/n]:" gen_pass
+    if [[ "$gen_pass" =~ ^[Nn]$ ]]; then
         reading "Пароль (мин. 8 символов):" ADMIN_PASS
         while [[ ${#ADMIN_PASS} -lt 8 ]]; do
             warn "Минимум 8 символов"
@@ -696,523 +563,374 @@ create_first_admin() {
         done
     else
         ADMIN_PASS=$(gen_password 20)
-        info "Сгенерированный пароль: ${G}${ADMIN_PASS}${R}"
+        info "Пароль: ${G}${ADMIN_PASS}${R}"
+        echo ""
+        warn "Сохрани пароль сейчас!"
+        reading "Нажми Enter когда сохранишь..." _
     fi
 
-    # Ждём пока backend поднимется
-    step "Ожидание запуска backend..."
+    step "Ожидание API..."
     local retries=0
-    until curl -sf "http://localhost:8080/health" > /dev/null 2>&1 || [[ $retries -ge 30 ]]; do
-        sleep 2
-        ((retries++))
-        printf "\r${GR}  Попытка %d/30...${R}" "$retries"
+    until curl -sf "http://localhost:8080/health" &>/dev/null || [[ $retries -ge 30 ]]; do
+        sleep 2; ((retries++))
+        printf "\r  ${GR}Попытка %d/30...${R}" "$retries"
     done
     echo ""
 
     if [[ $retries -ge 30 ]]; then
-        warn "Backend не ответил. Создай admin вручную через:"
-        warn "  POST https://ТВОЙ_ДОМЕН/api/v1/auth/setup"
-        warn "  Body: {\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}"
+        warn "Backend не ответил. Создай admin вручную:"
+        warn "  curl -X POST https://ДОМЕН/api/v1/auth/setup \\"
+        warn "    -H 'Content-Type: application/json' \\"
+        warn "    -d '{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}'"
         return
     fi
 
-    local panel_port
-    panel_port=$(grep PANEL_PORT "${PANEL_DIR}/.env" | cut -d= -f2)
-
-    # Вызов API setup
-    local response
-    response=$(curl -sf -X POST "http://localhost:8080/api/v1/auth/setup" \
+    local resp
+    resp=$(curl -sf -X POST "http://localhost:8080/api/v1/auth/setup" \
         -H "Content-Type: application/json" \
         -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" 2>&1)
 
-    if echo "$response" | grep -q "access_token"; then
-        info "Администратор создан"
-    else
-        warn "Ответ API: $response"
-        warn "Попробуй создать вручную через веб-интерфейс"
-    fi
+    echo "$resp" | grep -q "access_token" && info "Администратор создан" || \
+        warn "Ответ: $resp"
 }
 
-# ─────────────────────────────────────────
-#  Установка скрипта как системной команды
-# ─────────────────────────────────────────
+# ── Установка команды darkvision ─────────────────────────
 install_script_command() {
     mkdir -p "${SCRIPT_DIR}"
     cp "$0" "${SCRIPT_DIR}/darkvision"
     chmod +x "${SCRIPT_DIR}/darkvision"
     ln -sf "${SCRIPT_DIR}/darkvision" "${BIN_LINK}"
-
-    # Алиас dv
     local bashrc="/etc/bash.bashrc"
-    if ! grep -q "alias dv='darkvision'" "$bashrc" 2>/dev/null; then
+    grep -q "alias dv='darkvision'" "$bashrc" 2>/dev/null || \
         echo "alias dv='darkvision'" >> "$bashrc"
-        info "Алиас ${G}dv${R} добавлен — можно вызывать как: dv"
-    fi
-
-    info "Команда установлена: ${G}darkvision${R} (или ${G}dv${R})"
+    info "Команды: ${G}darkvision${R} и ${G}dv${R}"
 }
 
-# ─────────────────────────────────────────
-#  Самообновление
-# ─────────────────────────────────────────
+# ── Самообновление ────────────────────────────────────────
 self_update() {
     step "Проверка обновлений..."
-    local remote_version
-    remote_version=$(curl -fsSL "${SCRIPT_URL}" 2>/dev/null | grep -m1 '^SCRIPT_VERSION=' | cut -d'"' -f2)
+    local remote_ver
+    remote_ver=$(curl -fsSL "${SCRIPT_URL}" 2>/dev/null | grep -m1 '^SCRIPT_VERSION=' | cut -d'"' -f2)
+    [[ -z "$remote_ver" ]] && { warn "Нет связи с репозиторием"; return; }
+    [[ "$remote_ver" == "$SCRIPT_VERSION" ]] && { info "Актуальная версия: v${SCRIPT_VERSION}"; return; }
 
-    if [[ -z "$remote_version" ]]; then
-        warn "Не удалось проверить версию"
-        return
-    fi
-
-    if [[ "$remote_version" == "$SCRIPT_VERSION" ]]; then
-        info "Актуальная версия: ${G}v${SCRIPT_VERSION}${R}"
-        return
-    fi
-
-    echo ""
-    echo -e "${Y}Доступно обновление: ${R}${G}v${remote_version}${R} ${GR}(текущая: v${SCRIPT_VERSION})${R}"
-    reading "Обновить? [Y/n]:" confirm
-
-    [[ "$confirm" =~ ^[Nn]$ ]] && return
-
+    echo -e "${Y}Доступно обновление:${R} ${G}v${remote_ver}${R} ${GR}(текущая: v${SCRIPT_VERSION})${R}"
+    reading "Обновить? [Y/n]:" c
+    [[ "$c" =~ ^[Nn]$ ]] && return
     curl -fsSL "${SCRIPT_URL}" -o "${SCRIPT_DIR}/darkvision.new" 2>/dev/null
-
-    if grep -q "SCRIPT_VERSION" "${SCRIPT_DIR}/darkvision.new" 2>/dev/null; then
+    grep -q "SCRIPT_VERSION" "${SCRIPT_DIR}/darkvision.new" 2>/dev/null && {
         mv "${SCRIPT_DIR}/darkvision.new" "${SCRIPT_DIR}/darkvision"
         chmod +x "${SCRIPT_DIR}/darkvision"
         ln -sf "${SCRIPT_DIR}/darkvision" "${BIN_LINK}"
-        info "Обновлено до v${remote_version}. Перезапусти: ${G}darkvision${R}"
+        info "Обновлено до v${remote_ver}. Перезапусти: darkvision"
         exit 0
-    else
-        rm -f "${SCRIPT_DIR}/darkvision.new"
-        warn "Скачан повреждённый файл, обновление отменено"
-    fi
+    } || { warn "Ошибка скачивания"; rm -f "${SCRIPT_DIR}/darkvision.new"; }
 }
 
-# ─────────────────────────────────────────
-#  Управление панелью
-# ─────────────────────────────────────────
+# ── Управление панелью ────────────────────────────────────
 panel_status() {
-    echo ""
-    echo -e "${C}━━━  Статус DarkVision  ━━━${R}"
-    echo ""
+    echo ""; echo -e "${C}━━━  Статус DarkVision  ━━━${R}"; echo ""
     cd "${PANEL_DIR}" 2>/dev/null || { warn "Панель не установлена"; return; }
-
-    docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || \
-    docker compose ps 2>/dev/null
+    docker compose ps --format "  {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null
     echo ""
-
-    local panel_port
-    panel_port=$(grep PANEL_PORT "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2 || echo "8443")
-    local domain
-    domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2 || echo "localhost")
-
-    info "Панель: ${C}https://${domain}:${panel_port}${R}"
+    local domain; domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+    local port;   port=$(grep PANEL_PORT "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+    local sub;    sub=$(grep SUB_BASE_URL "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+    info "Панель:    ${C}https://${domain}${R}"
+    info "Подписки:  ${C}${sub}/TOKEN${R}"
 }
 
 panel_logs() {
-    local svc="${1:-}"
     cd "${PANEL_DIR}" 2>/dev/null || { warn "Панель не установлена"; return; }
-
-    if [[ -n "$svc" ]]; then
-        docker compose logs -f --tail=100 "$svc"
-    else
-        echo ""
-        echo -e "${Y}Выбери контейнер:${R}"
-        echo -e "  1. backend"
-        echo -e "  2. xray"
-        echo -e "  3. nginx"
-        echo -e "  4. postgres"
-        echo -e "  5. redis"
-        echo -e "  0. Все"
-        reading "Выбор:" log_choice
-        case $log_choice in
-            1) docker compose logs -f --tail=100 backend ;;
-            2) docker compose logs -f --tail=100 xray ;;
-            3) docker compose logs -f --tail=100 nginx ;;
-            4) docker compose logs -f --tail=100 postgres ;;
-            5) docker compose logs -f --tail=100 redis ;;
-            *) docker compose logs -f --tail=50 ;;
-        esac
-    fi
+    echo -e "${Y}Контейнер:${R} 1)backend 2)xray 3)nginx 4)postgres 5)redis 0)все"
+    reading "Выбор:" c
+    case $c in
+        1) docker compose logs -f --tail=100 backend ;;
+        2) docker compose logs -f --tail=100 xray ;;
+        3) docker compose logs -f --tail=100 nginx ;;
+        4) docker compose logs -f --tail=100 postgres ;;
+        5) docker compose logs -f --tail=100 redis ;;
+        *) docker compose logs -f --tail=50 ;;
+    esac
 }
 
 restart_service() {
-    cd "${PANEL_DIR}" 2>/dev/null || { warn "Панель не установлена"; return; }
-
+    cd "${PANEL_DIR}" 2>/dev/null || return
     echo ""
-    echo -e "${Y}Что перезапустить?${R}"
-    echo -e "  1. Всё"
-    echo -e "  2. Backend (API)"
-    echo -e "  3. Frontend"
-    echo -e "  4. Nginx"
-    echo -e "  5. Xray (VPN ядро — соединения не рвутся!)"
-    echo -e "  6. PostgreSQL"
-    echo -e "  7. Redis"
-    reading "Выбор:" svc_choice
-
-    case $svc_choice in
-        1) docker compose restart & spinner $! "Перезапуск всего..."; info "Готово" ;;
-        2) docker compose restart backend & spinner $! "Backend..."; info "Backend перезапущен" ;;
-        3) docker compose restart frontend & spinner $! "Frontend..."; info "Frontend перезапущен" ;;
-        4) docker compose restart nginx & spinner $! "Nginx..."; info "Nginx перезапущен" ;;
-        5) docker compose restart xray & spinner $! "Xray (горячий рестарт)..."; info "Xray перезапущен — существующие VPN соединения не затронуты" ;;
-        6) docker compose restart postgres & spinner $! "PostgreSQL..."; info "PostgreSQL перезапущен" ;;
-        7) docker compose restart redis & spinner $! "Redis..."; info "Redis перезапущен" ;;
-        *) warn "Неверный выбор" ;;
+    echo -e "  ${G}1.${R} Всё  ${G}2.${R} Backend  ${G}3.${R} Frontend  ${G}4.${R} Nginx"
+    echo -e "  ${G}5.${R} Xray ${Y}(соединения не рвутся!)${R}  ${G}6.${R} PostgreSQL  ${G}7.${R} Redis"
+    reading "Выбор:" c
+    case $c in
+        1) docker compose restart & spinner $! "Перезапуск всего..." ;;
+        2) docker compose restart backend & spinner $! "Backend..." ;;
+        3) docker compose restart frontend & spinner $! "Frontend..." ;;
+        4) docker compose restart nginx & spinner $! "Nginx..." ;;
+        5) docker compose restart xray & spinner $! "Xray (горячий)..."
+           info "Существующие VPN соединения не затронуты" ;;
+        6) docker compose restart postgres & spinner $! "PostgreSQL..." ;;
+        7) docker compose restart redis & spinner $! "Redis..." ;;
     esac
 }
 
 backup_db() {
-    cd "${PANEL_DIR}" 2>/dev/null || { warn "Панель не установлена"; return; }
+    cd "${PANEL_DIR}" 2>/dev/null || return
+    mkdir -p "${PANEL_DIR}/backups"
+    local f="darkvision_$(date +%Y%m%d_%H%M%S).sql.gz"
+    step "Создание дампа..."
+    docker compose exec -T postgres pg_dump -U darkvision darkvision 2>/dev/null | \
+        gzip > "${PANEL_DIR}/backups/${f}"
+    [[ -s "${PANEL_DIR}/backups/${f}" ]] && \
+        info "Дамп: ${G}${PANEL_DIR}/backups/${f}${R} ($(du -sh "${PANEL_DIR}/backups/${f}" | cut -f1))" || \
+        warn "Ошибка создания дампа"
+}
 
-    local backup_dir="${PANEL_DIR}/backups"
-    mkdir -p "$backup_dir"
+show_reality_keys() {
+    local f="${PANEL_DIR}/xray/reality_keys.txt"
+    [[ -f "$f" ]] && { echo ""; echo -e "${C}━━━  Reality Keys  ━━━${R}"; echo ""; cat "$f"; echo ""; } || \
+        warn "Ключи не найдены: $f"
+    reading "Enter..." _
+}
 
-    local filename="darkvision_db_$(date +%Y%m%d_%H%M%S).sql.gz"
-    local db_pass
-    db_pass=$(grep POSTGRES_PASSWORD "${PANEL_DIR}/.env" | cut -d= -f2)
+configure_telegram() {
+    echo ""; echo -e "${C}━━━  Telegram Bot  ━━━${R}"; echo ""
+    reading "Токен бота (от @BotFather):" token
+    [[ -z "$token" ]] && return
+    sed -i "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${token}|" "${PANEL_DIR}/.env"
 
-    step "Создание дампа БД..."
-    docker compose exec -T postgres \
-        pg_dump -U darkvision darkvision 2>/dev/null | \
-        gzip > "${backup_dir}/${filename}"
+    local domain; domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" | cut -d= -f2)
+    local wsecret; wsecret=$(grep TELEGRAM_WEBHOOK_SECRET "${PANEL_DIR}/.env" | cut -d= -f2)
 
-    if [[ -s "${backup_dir}/${filename}" ]]; then
-        info "Дамп сохранён: ${G}${backup_dir}/${filename}${R}"
-        info "Размер: $(du -sh "${backup_dir}/${filename}" | cut -f1)"
-    else
-        warn "Дамп пустой или ошибка"
-    fi
+    echo ""; info "Токен сохранён"
+    local resp; resp=$(curl -sf -X POST \
+        "https://api.telegram.org/bot${token}/setWebhook" \
+        -H "Content-Type: application/json" \
+        -d "{\"url\":\"https://${domain}/api/v1/telegram/webhook\",\"secret_token\":\"${wsecret}\"}")
+    echo "$resp" | grep -q '"ok":true' && info "Webhook зарегистрирован" || warn "Ответ: $resp"
+
+    cd "${PANEL_DIR}" && docker compose restart backend & spinner $! "Перезапуск backend..."
+    reading "Enter..." _
 }
 
 uninstall_panel() {
-    echo ""
-    echo -e "${RED}━━━  УДАЛЕНИЕ DARKVISION  ━━━${R}"
-    echo ""
-    echo -e "${Y}Выбери действие:${R}"
-    echo -e "  1. Удалить только скрипт управления"
-    echo -e "  2. Остановить и удалить контейнеры (данные сохраняются)"
-    echo -e "  3. ${RED}ПОЛНОЕ удаление — контейнеры + все данные + БД${R}"
-    echo -e "  0. Отмена"
-    reading "Выбор:" del_choice
-
-    case $del_choice in
-        1)
-            rm -f "${BIN_LINK}" "${SCRIPT_DIR}/darkvision"
-            sed -i "/alias dv='darkvision'/d" /etc/bash.bashrc 2>/dev/null
-            info "Скрипт удалён. Панель продолжает работать."
-            exit 0
-            ;;
-        2)
-            reading "Подтвердить остановку контейнеров? (yes/no):" confirm
-            [[ "$confirm" != "yes" ]] && { warn "Отменено"; return; }
-            cd "${PANEL_DIR}" && docker compose down --remove-orphans
-            info "Контейнеры остановлены. Данные в volumes сохранены."
-            ;;
-        3)
-            echo -e "${RED}ВНИМАНИЕ: Все данные пользователей будут удалены!${R}"
-            reading "Напиши 'DELETE' для подтверждения:" confirm
-            [[ "$confirm" != "DELETE" ]] && { warn "Отменено"; return; }
-
-            cd "${PANEL_DIR}" && \
-                docker compose down -v --remove-orphans --rmi all > /dev/null 2>&1 &
-            spinner $! "Удаление контейнеров и volumes..."
-
-            rm -rf "${PANEL_DIR}"
-            rm -f "${BIN_LINK}" "${SCRIPT_DIR}/darkvision"
-            sed -i "/alias dv='darkvision'/d" /etc/bash.bashrc 2>/dev/null
-
-            info "DarkVision полностью удалён"
-            exit 0
-            ;;
-        0) return ;;
-        *) warn "Неверный выбор" ;;
+    echo ""; echo -e "${RED}━━━  УДАЛЕНИЕ  ━━━${R}"; echo ""
+    echo -e "  ${G}1.${R} Только скрипт  ${G}2.${R} Контейнеры (данные остаются)  ${G}3.${R} ${RED}Всё полностью${R}  ${G}0.${R} Отмена"
+    reading "Выбор:" c
+    case $c in
+        1) rm -f "${BIN_LINK}" "${SCRIPT_DIR}/darkvision"
+           sed -i "/alias dv='darkvision'/d" /etc/bash.bashrc 2>/dev/null
+           info "Скрипт удалён"; exit 0 ;;
+        2) reading "Подтвердить? (yes/no):" ok
+           [[ "$ok" != "yes" ]] && return
+           cd "${PANEL_DIR}" && docker compose down --remove-orphans
+           info "Контейнеры остановлены, данные сохранены" ;;
+        3) reading "Напиши DELETE для подтверждения:" ok
+           [[ "$ok" != "DELETE" ]] && return
+           cd "${PANEL_DIR}" && docker compose down -v --remove-orphans --rmi all &>/dev/null &
+           spinner $! "Удаление..."
+           rm -rf "${PANEL_DIR}" "${SCRIPT_DIR}" "${BIN_LINK}"
+           sed -i "/alias dv='darkvision'/d" /etc/bash.bashrc 2>/dev/null
+           info "DarkVision удалён полностью"; exit 0 ;;
     esac
 }
 
-# ─────────────────────────────────────────
-#  Главное меню
-# ─────────────────────────────────────────
-main_menu() {
-    while true; do
-        banner
-
-        # Статус установки
-        if [[ -f "${PANEL_DIR}/.env" ]]; then
-            local domain panel_port
-            domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" | cut -d= -f2)
-            panel_port=$(grep PANEL_PORT "${PANEL_DIR}/.env" | cut -d= -f2)
-            echo -e "  ${GR}Панель:${R} ${C}https://${domain}:${panel_port}${R}"
-            echo -e "  ${GR}Статус контейнеров (запущено):${R} ${G}$(docker compose -f ${PANEL_DIR}/docker-compose.yml ps --status running 2>/dev/null | grep -c "Up\|running")${R}"
-        else
-            echo -e "  ${Y}● Панель не установлена${R}"
-        fi
-
-        echo ""
-        echo -e "  ${W}─── Установка ───────────────────────────────────${R}"
-        echo -e "  ${G}1.${R}  Полная установка (рекомендуется)"
-        echo -e "  ${G}2.${R}  Только Docker + зависимости"
-        echo -e "  ${G}3.${R}  Только настройка системы (BBR, UFW, IPv6)"
-        echo ""
-        echo -e "  ${W}─── Управление ──────────────────────────────────${R}"
-        echo -e "  ${G}4.${R}  Статус контейнеров"
-        echo -e "  ${G}5.${R}  Логи"
-        echo -e "  ${G}6.${R}  Перезапустить сервис"
-        echo -e "  ${G}7.${R}  Создать резервную копию БД"
-        echo ""
-        echo -e "  ${W}─── Конфигурация ────────────────────────────────${R}"
-        echo -e "  ${G}8.${R}  Создать/обновить SSL сертификат"
-        echo -e "  ${G}9.${R}  Показать Reality ключи"
-        echo -e "  ${G}10.${R} Настроить Telegram бот"
-        echo ""
-        echo -e "  ${W}─── Прочее ──────────────────────────────────────${R}"
-        echo -e "  ${G}11.${R} Обновить скрипт"
-        echo -e "  ${G}12.${R} Удалить DarkVision"
-        echo -e "  ${G}0.${R}  Выход"
-        echo ""
-        hr
-        reading "Выбор:" CHOICE
-
-        case $CHOICE in
-            1)  full_install ;;
-            2)  check_requirements; install_deps; install_docker ;;
-            3)  setup_bbr; disable_ipv6
-                reading "Открыть порт панели (по умолчанию 8443):" p_port
-                reading "Открыть порт VPN (по умолчанию 443):" v_port
-                setup_ufw "${p_port:-8443}" "${v_port:-443}" ;;
-            4)  panel_status; reading "Enter для продолжения..." _ ;;
-            5)  panel_logs ;;
-            6)  restart_service ;;
-            7)  backup_db; reading "Enter для продолжения..." _ ;;
-            8)  ssl_menu ;;
-            9)  show_reality_keys ;;
-            10) configure_telegram ;;
-            11) self_update ;;
-            12) uninstall_panel ;;
-            0)  echo -e "\n${G}До свидания!${R}\n"; exit 0 ;;
-            *)  warn "Неверный выбор" ;;
-        esac
-    done
-}
-
-# ─────────────────────────────────────────
-#  Полная установка
-# ─────────────────────────────────────────
+# ╔══════════════════════════════════════════════════════════╗
+# ║                   ПОЛНАЯ УСТАНОВКА                      ║
+# ╚══════════════════════════════════════════════════════════╝
 full_install() {
     banner
-    echo -e "${C}━━━  Полная установка DarkVision  ━━━${R}"
-    echo ""
+    echo -e "${C}━━━  Полная установка DarkVision  ━━━${R}"; echo ""
+    check_root; check_os
 
-    check_requirements
-
-    # Запросить параметры
-    reading "Домен или IP сервера (напр. panel.example.com):" DOMAIN
-    DOMAIN="${DOMAIN:-localhost}"
-
-    reading "Порт панели (по умолчанию 8443):" PANEL_PORT
-    PANEL_PORT="${PANEL_PORT:-8443}"
-
-    reading "Порт VPN/Xray (по умолчанию 443):" VPN_PORT
-    VPN_PORT="${VPN_PORT:-443}"
+    # ── Параметры ─────────────────────────────────────────
+    reading "Домен панели (напр. panel.example.com):" PANEL_DOMAIN
+    [[ -z "$PANEL_DOMAIN" ]] && error "Домен обязателен"
 
     echo ""
-    echo -e "${Y}SSL сертификат:${R}"
-    echo -e "  1. Self-signed (без домена, для тестов)"
-    echo -e "  2. Let's Encrypt ACME (нужен реальный домен)"
-    reading "Выбор SSL:" ssl_choice
+    reading "CDN домен для подписок (напр. cdn.wedarkvpn.org или тот же домен):" SUB_DOMAIN
+    SUB_DOMAIN="${SUB_DOMAIN:-$PANEL_DOMAIN}"
 
-    if [[ "$ssl_choice" == "2" ]]; then
-        reading "Email для Let's Encrypt:" LE_EMAIL
-    fi
-
-    # Подтверждение
     echo ""
-    echo -e "${C}Параметры установки:${R}"
-    echo -e "  Домен:      ${W}${DOMAIN}${R}"
+    reading "Порт панели (по умолчанию 9443):" PANEL_PORT
+    PANEL_PORT="${PANEL_PORT:-9443}"
+
+    reading "Порт VPN/Xray (по умолчанию 2053, не конфликтует с RemnaWave):" VPN_PORT
+    VPN_PORT="${VPN_PORT:-2053}"
+
+    # ── Подтверждение ─────────────────────────────────────
+    echo ""
+    echo -e "${C}Параметры:${R}"
+    echo -e "  Панель:     ${W}https://${PANEL_DOMAIN}${R}"
+    echo -e "  Подписки:   ${W}https://${SUB_DOMAIN}/TOKEN${R}"
     echo -e "  Порт панели:${W} ${PANEL_PORT}${R}"
-    echo -e "  Порт VPN:   ${W}${VPN_PORT}${R}"
-    echo -e "  SSL:        ${W}$([ "$ssl_choice" == "2" ] && echo "Let's Encrypt" || echo "Self-signed")${R}"
-    echo -e "  Директория: ${W}${PANEL_DIR}${R}"
+    echo -e "  Порт VPN:   ${W} ${VPN_PORT}${R}"
     echo ""
-    reading "Начать установку? [Y/n]:" go
-
+    reading "Начать? [Y/n]:" go
     [[ "$go" =~ ^[Nn]$ ]] && return
 
     echo ""
-    step "=== Шаг 1/7: Зависимости ==="
-    install_deps
-    install_docker
+    step "=== 1/8: Зависимости ==="
+    install_deps; install_docker
 
-    step "=== Шаг 2/7: Оптимизация системы ==="
-    setup_bbr
-    disable_ipv6
-    setup_ufw "$PANEL_PORT" "$VPN_PORT"
+    step "=== 2/8: Оптимизация системы ==="
+    setup_bbr; disable_ipv6; setup_ufw "$PANEL_PORT" "$VPN_PORT"
 
-    step "=== Шаг 3/7: Файлы проекта ==="
+    step "=== 3/8: Файлы проекта ==="
     mkdir -p "${PANEL_DIR}"
-    deploy_project_files
+    # Скачать docker-compose.yml из репозитория
+    curl -fsSL "${REPO_URL}/docker-compose.yml" -o "${PANEL_DIR}/docker-compose.yml" 2>/dev/null || \
+        warn "Не удалось скачать docker-compose.yml — скопируй вручную"
 
-    step "=== Шаг 4/7: Конфигурация ==="
-    create_env "$DOMAIN" "$PANEL_PORT"
-    create_nginx_config "$DOMAIN" "$PANEL_PORT"
+    step "=== 4/8: Конфигурация ==="
+    create_env "$PANEL_DOMAIN" "$PANEL_PORT" "$VPN_PORT" "$SUB_DOMAIN"
+    create_nginx_config "$PANEL_DOMAIN" "$PANEL_PORT" "$SUB_DOMAIN"
+
+    step "=== 5/8: Xray Reality ключи ==="
     create_xray_config
 
-    step "=== Шаг 5/7: SSL сертификат ==="
-    if [[ "$ssl_choice" == "2" && -n "$LE_EMAIL" ]]; then
-        setup_ssl_acme "$DOMAIN" "$LE_EMAIL"
-    else
-        setup_ssl_selfsigned "$DOMAIN"
-    fi
+    step "=== 6/8: SSL сертификат ==="
+    setup_ssl_auto "$PANEL_DOMAIN"
 
-    step "=== Шаг 6/7: Запуск контейнеров ==="
+    step "=== 7/8: Запуск ==="
     start_stack
 
-    step "=== Шаг 7/7: Создание администратора ==="
+    step "=== 8/8: Администратор ==="
     create_first_admin
 
     install_script_command
 
-    # Итог
-    echo ""
-    hr
-    echo -e "${C}     ✦  DarkVision установлен!  ✦${R}"
-    hr
-    echo ""
-
-    local domain_display
-    domain_display=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" | cut -d= -f2)
-
-    echo -e "  ${W}Панель:${R}          ${C}https://${domain_display}:${PANEL_PORT}${R}"
-    echo -e "  ${W}Команда:${R}         ${G}darkvision${R}  или  ${G}dv${R}"
-    echo -e "  ${W}Логи:${R}            ${GR}dv → 5${R}"
-    echo -e "  ${W}Reality ключи:${R}   ${GR}cat ${PANEL_DIR}/xray/reality_keys.txt${R}"
-    echo ""
-    echo -e "  ${Y}⚠ Сохрани пароль администратора в надёжном месте!${R}"
-    echo ""
-    hr
-    echo ""
-
-    reading "Открыть главное меню? [Y/n]:" back
-    [[ "$back" =~ ^[Nn]$ ]] || main_menu
+    # ── Итог ──────────────────────────────────────────────
+    echo ""; hr
+    echo -e "${C}      ✦  DarkVision установлен!  ✦${R}"
+    hr; echo ""
+    echo -e "  ${W}Панель:${R}        ${C}https://${PANEL_DOMAIN}${R}"
+    echo -e "  ${W}Подписки:${R}      ${C}https://${SUB_DOMAIN}/TOKEN${R}"
+    echo -e "  ${W}Reality PubKey:${R} ${GR}cat ${PANEL_DIR}/xray/reality_keys.txt${R}"
+    echo -e "  ${W}Команда:${R}       ${G}darkvision${R}  или  ${G}dv${R}"
+    echo ""; hr; echo ""
+    reading "Нажми Enter для возврата в меню..." _
+    main_menu
 }
 
-# ─────────────────────────────────────────
-#  SSL меню
-# ─────────────────────────────────────────
-ssl_menu() {
+# ── Изменить домен подписок ───────────────────────────────
+# Каждый пользователь имеет уникальный sub_token (32 hex символа).
+# SUB_BASE_URL определяет только домен — итоговый URL: ${SUB_BASE_URL}/${user.sub_token}
+# Пример: https://cdn.wedarkvpn.org/a3f9b2c1d4e5f6789012345678901234
+change_sub_domain() {
+    echo ""; echo -e "${C}━━━  Домен подписок  ━━━${R}"; echo ""
+
+    local current; current=$(grep SUB_BASE_URL "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+    info "Текущий: ${W}${current}${R}"
     echo ""
-    echo -e "${Y}Тип сертификата:${R}"
-    echo -e "  1. Self-signed (обновить/создать)"
-    echo -e "  2. Let's Encrypt (ACME)"
-    reading "Выбор:" schoice
-
-    local domain
-    domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2 || echo "localhost")
-    reading "Домен [${domain}]:" inp_domain
-    domain="${inp_domain:-$domain}"
-
-    case $schoice in
-        1) setup_ssl_selfsigned "$domain"
-           cd "${PANEL_DIR}" && docker compose restart nginx ;;
-        2)
-           reading "Email:" le_email
-           setup_ssl_acme "$domain" "$le_email"
-           cd "${PANEL_DIR}" && docker compose restart nginx ;;
-    esac
-}
-
-# ─────────────────────────────────────────
-#  Показать Reality ключи
-# ─────────────────────────────────────────
-show_reality_keys() {
-    local keys_file="${PANEL_DIR}/xray/reality_keys.txt"
-    if [[ -f "$keys_file" ]]; then
-        echo ""
-        echo -e "${C}━━━  Reality Keys  ━━━${R}"
-        cat "$keys_file" | grep -v "^#" | while read -r line; do
-            echo -e "  ${W}${line}${R}"
-        done
-        echo ""
-    else
-        warn "Файл ключей не найден: $keys_file"
-        warn "Запусти полную установку для генерации"
-    fi
-    reading "Enter для продолжения..." _
-}
-
-# ─────────────────────────────────────────
-#  Telegram настройка
-# ─────────────────────────────────────────
-configure_telegram() {
+    echo -e "  Формат ссылок: ${C}\${SUB_BASE_URL}/\${user_token}${R}"
+    echo -e "  Пример: ${GR}https://cdn.wedarkvpn.org/a3f9b2c1...${R}"
+    echo -e "  ${Y}Каждый пользователь имеет свой уникальный токен${R}"
     echo ""
-    echo -e "${C}━━━  Настройка Telegram бота  ━━━${R}"
-    echo ""
-    echo -e "  1. Создай бота через ${C}@BotFather${R} в Telegram"
-    echo -e "  2. Получи токен вида ${W}1234567890:AABBCCDDEEFFaabbccddeeff${R}"
-    echo ""
+    reading "Новый домен (с https://, напр. https://cdn.wedarkvpn.org):" new_domain
+    [[ -z "$new_domain" ]] && { warn "Не изменено"; return; }
 
-    reading "Вставь токен бота:" bot_token
-
-    if [[ -z "$bot_token" ]]; then
-        warn "Токен не введён"
-        return
-    fi
+    # Убрать trailing slash
+    new_domain="${new_domain%/}"
 
     # Обновить .env
-    sed -i "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${bot_token}|" "${PANEL_DIR}/.env"
+    sed -i "s|^SUB_BASE_URL=.*|SUB_BASE_URL=${new_domain}|" "${PANEL_DIR}/.env"
 
-    local domain
-    domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" | cut -d= -f2)
-    local webhook_secret
-    webhook_secret=$(grep TELEGRAM_WEBHOOK_SECRET "${PANEL_DIR}/.env" | cut -d= -f2)
-    local panel_port
-    panel_port=$(grep PANEL_PORT "${PANEL_DIR}/.env" | cut -d= -f2)
+    # Извлечь hostname для nginx
+    local hostname; hostname=$(echo "$new_domain" | sed 's|https://||;s|http://||;s|/.*||')
 
-    echo ""
-    info "Токен сохранён"
-    echo ""
-    echo -e "${Y}Зарегистрируй вебхук командой:${R}"
-    echo -e "${GR}curl -X POST \"https://api.telegram.org/bot${bot_token}/setWebhook\" \\${R}"
-    echo -e "${GR}  -H \"Content-Type: application/json\" \\${R}"
-    echo -e "${GR}  -d '{\"url\":\"https://${domain}:${panel_port}/api/v1/telegram/webhook\",\"secret_token\":\"${webhook_secret}\"}'${R}"
-    echo ""
+    # Обновить nginx конфиг — заменить server_name в блоке CDN
+    local nginx_conf="${PANEL_DIR}/nginx/conf.d/panel.conf"
+    if [[ -f "$nginx_conf" ]]; then
+        # Обновить строку server_name в блоке CDN подписок
+        # Блок CDN — второй server{} блок с server_name
+        python3 - << PYEOF 2>/dev/null || \
+        sed -i "0,/server_name.*;/{n; s/server_name .*/server_name ${hostname};/}" "$nginx_conf"
+import re, sys
 
-    reading "Зарегистрировать вебхук автоматически? [Y/n]:" auto_reg
-    if [[ ! "$auto_reg" =~ ^[Nn]$ ]]; then
-        local resp
-        resp=$(curl -sf -X POST \
-            "https://api.telegram.org/bot${bot_token}/setWebhook" \
-            -H "Content-Type: application/json" \
-            -d "{\"url\":\"https://${domain}:${panel_port}/api/v1/telegram/webhook\",\"secret_token\":\"${webhook_secret}\"}")
+with open('${nginx_conf}', 'r') as f:
+    content = f.read()
 
-        if echo "$resp" | grep -q '"ok":true'; then
-            info "Вебхук зарегистрирован"
-        else
-            warn "Ответ: $resp"
-        fi
+# Заменить server_name в блоке CDN (второй блок 443)
+# Ищем комментарий "CDN домен подписок"
+pattern = r'(# ── CDN домен подписок.*?\n.*?server_name\s+)([^\s;]+)(;)'
+replacement = r'\g<1>${hostname}\g<3>'
+new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+
+with open('${nginx_conf}', 'w') as f:
+    f.write(new_content)
+
+print('nginx conf updated')
+PYEOF
+
+        cd "${PANEL_DIR}" && docker compose restart nginx & spinner $! "Применение nginx конфига..."
     fi
 
-    # Перезапустить backend для подхвата нового токена
-    cd "${PANEL_DIR}" && docker compose restart backend &
-    spinner $! "Перезапуск backend..."
-    reading "Enter для продолжения..." _
+    info "Домен подписок изменён: ${G}${new_domain}${R}"
+    info "Ссылки теперь: ${C}${new_domain}/\${уникальный_токен_пользователя}${R}"
+    reading "Enter..." _
 }
 
-# ─────────────────────────────────────────
-#  Точка входа
-# ─────────────────────────────────────────
+
+main_menu() {
+    while true; do
+        banner
+        if [[ -f "${PANEL_DIR}/.env" ]]; then
+            local domain; domain=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+            local sub; sub=$(grep SUB_BASE_URL "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+            local running; running=$(docker compose -f "${PANEL_DIR}/docker-compose.yml" ps --status running 2>/dev/null | grep -c "running" || echo "0")
+            echo -e "  ${GR}Панель:${R}    ${C}https://${domain}${R}"
+            echo -e "  ${GR}Подписки:${R}  ${C}${sub}/TOKEN${R}"
+            echo -e "  ${GR}Запущено:${R}  ${G}${running} контейнеров${R}"
+        else
+            echo -e "  ${Y}● Панель не установлена${R}"
+        fi
+        echo ""
+        echo -e "  ${W}─── Установка ─────────────────────${R}"
+        echo -e "  ${G}1.${R}  Полная установка"
+        echo ""
+        echo -e "  ${W}─── Управление ────────────────────${R}"
+        echo -e "  ${G}2.${R}  Статус"
+        echo -e "  ${G}3.${R}  Логи"
+        echo -e "  ${G}4.${R}  Перезапустить сервис"
+        echo -e "  ${G}5.${R}  Резервная копия БД"
+        echo ""
+        echo -e "  ${W}─── Конфигурация ──────────────────${R}"
+        echo -e "  ${G}6.${R}  Обновить SSL сертификат"
+        echo -e "  ${G}7.${R}  Reality ключи"
+        echo -e "  ${G}8.${R}  Telegram бот"
+        echo -e "  ${G}11.${R} Изменить домен подписок"
+        echo ""
+        echo -e "  ${W}─── Прочее ────────────────────────${R}"
+        echo -e "  ${G}9.${R}  Обновить скрипт"
+        echo -e "  ${G}10.${R} Удалить DarkVision"
+        echo -e "  ${G}0.${R}  Выход"
+        echo ""; hr
+        reading "Выбор:" CHOICE
+        case $CHOICE in
+            1)  full_install ;;
+            2)  panel_status; reading "Enter..." _ ;;
+            3)  panel_logs ;;
+            4)  restart_service ;;
+            5)  backup_db; reading "Enter..." _ ;;
+            6)  local d; d=$(grep PANEL_DOMAIN "${PANEL_DIR}/.env" 2>/dev/null | cut -d= -f2)
+                setup_ssl_auto "$d"
+                cd "${PANEL_DIR}" && docker compose restart nginx & spinner $! "Nginx..." ;;
+            7)  show_reality_keys ;;
+            8)  configure_telegram ;;
+            11) change_sub_domain ;;
+            9)  self_update ;;
+            10) uninstall_panel ;;
+            0)  echo -e "\n${G}До свидания!${R}\n"; exit 0 ;;
+        esac
+    done
+}
+
 main() {
-    # Создать директорию для логов
     mkdir -p "${SCRIPT_DIR}"
     exec > >(tee -a "${LOGFILE}") 2>&1
-
-    # Если вызван с аргументом
     case "${1:-}" in
-        install)   check_requirements; full_install ;;
+        install)   check_root; full_install ;;
         status)    panel_status ;;
-        logs)      panel_logs "${2:-}" ;;
+        logs)      panel_logs ;;
         restart)   restart_service ;;
         backup)    backup_db ;;
         update)    self_update ;;

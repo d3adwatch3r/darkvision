@@ -63,7 +63,7 @@ services:
     expose:
       - "10085"   # gRPC API — только для backend
     ports:
-      - "${VLESS_PORT:-443}:443"
+      - "${VLESS_PORT:-2053}:443"
     cap_add:
       - NET_ADMIN
     ulimits:
@@ -117,8 +117,8 @@ services:
       backend:  { condition: service_healthy }
       frontend: { condition: service_started }
     ports:
-      - "${PANEL_PORT:-8443}:443"
-      - "${PANEL_HTTP_PORT:-8080}:80"
+      - "${PANEL_PORT:-9443}:443"
+      - "${PANEL_HTTP_PORT:-9080}:80"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
