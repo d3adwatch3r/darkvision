@@ -1,0 +1,141 @@
+version: '3.9'
+
+# ╔══════════════════════════════════════════════╗
+# ║           DarkVision VPN Panel               ║
+# ║  nginx → frontend / backend → pg / redis     ║
+# ║  backend ←gRPC→ xray  (горячая перезагрузка) ║
+# ╚══════════════════════════════════════════════╝
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: darkvision-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-darkvision}
+      POSTGRES_USER: ${POSTGRES_USER:-darkvision}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - darkvision-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-darkvision}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: darkvision-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - darkvision-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Xray-core — VPN ядро. API порт 10085 только внутри сети.
+  # Горячее добавление/удаление пользователей через gRPC HandlerService.
+  xray:
+    image: ghcr.io/xtls/xray-core:latest
+    container_name: darkvision-xray
+    restart: unless-stopped
+    volumes:
+      - ./xray/config:/etc/xray
+      - xray_logs:/var/log/xray
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    networks:
+      - darkvision-net
+    expose:
+      - "10085"   # gRPC API — только для backend
+    ports:
+      - "${VLESS_PORT:-443}:443"
+    cap_add:
+      - NET_ADMIN
+    ulimits:
+      nofile: { soft: 51200, hard: 51200 }
+    sysctls:
+      net.core.somaxconn: 4096
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: darkvision-backend
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      xray:      { condition: service_started }
+    volumes:
+      - ./xray/config:/xray-config
+      - backend_logs:/var/log/darkvision
+    networks:
+      - darkvision-net
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: darkvision-frontend
+    restart: unless-stopped
+    networks:
+      - darkvision-net
+    expose:
+      - "3000"
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: darkvision-nginx
+    restart: unless-stopped
+    depends_on:
+      backend:  { condition: service_healthy }
+      frontend: { condition: service_started }
+    ports:
+      - "${PANEL_PORT:-8443}:443"
+      - "${PANEL_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - darkvision-net
+
+volumes:
+  postgres_data:
+  redis_data:
+  xray_logs:
+  backend_logs:
+  nginx_logs:
+
+networks:
+  darkvision-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
