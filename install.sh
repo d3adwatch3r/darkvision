@@ -5,7 +5,7 @@
 # ║         d3adwatch3r/darkvision/main/install.sh)          ║
 # ╚══════════════════════════════════════════════════════════╝
 
-SCRIPT_VERSION="1.1.3"
+SCRIPT_VERSION="1.1.4"
 PANEL_DIR="/opt/darkvision"
 SCRIPT_DIR="/usr/local/darkvision"
 BIN_LINK="/usr/local/bin/darkvision"
@@ -203,7 +203,7 @@ get_acme_cert() {
     (crontab -l 2>/dev/null | grep -v acme; \
      echo "0 3 * * * $acme --cron --home ~/.acme.sh --days 80 > /dev/null 2>&1") | crontab -
 
-    info "Сертификат получен и настроено автопродление (каждые 60 дней)"
+    info "Сертификат получен и настроено автопродление (LE max 90 дней, обновление при остатке <10 дней)"
     return 0
 }
 
@@ -761,34 +761,56 @@ create_first_admin() {
 # ── Установка команды darkvision ─────────────────────────
 install_script_command() {
     mkdir -p "${SCRIPT_DIR}"
-    cp "$0" "${SCRIPT_DIR}/darkvision"
+    # Если запущены через bash <(curl ...) то $0 = /dev/fd/63 — копировать нельзя.
+    # Скачиваем актуальную версию с GitHub.
+    if [[ -f "$0" && "$0" != /dev/fd/* && "$0" != /proc/* ]]; then
+        cp "$0" "${SCRIPT_DIR}/darkvision"
+    else
+        curl -fsSL "${SCRIPT_URL}" -o "${SCRIPT_DIR}/darkvision" 2>/dev/null
+    fi
     chmod +x "${SCRIPT_DIR}/darkvision"
     ln -sf "${SCRIPT_DIR}/darkvision" "${BIN_LINK}"
     local bashrc="/etc/bash.bashrc"
     grep -q "alias dv='darkvision'" "$bashrc" 2>/dev/null || \
         echo "alias dv='darkvision'" >> "$bashrc"
-    info "Команды: ${G}darkvision${R} и ${G}dv${R}"
+    info "Команды: ${G}darkvision${R} и ${G}dv${R} (alias активен после релогина или: source /etc/bash.bashrc)"
 }
 
 # ── Самообновление ────────────────────────────────────────
 self_update() {
     step "Проверка обновлений..."
     local remote_ver
-    remote_ver=$(curl -fsSL "${SCRIPT_URL}" 2>/dev/null | grep -m1 '^SCRIPT_VERSION=' | cut -d'"' -f2)
-    [[ -z "$remote_ver" ]] && { warn "Нет связи с репозиторием"; return; }
-    [[ "$remote_ver" == "$SCRIPT_VERSION" ]] && { info "Актуальная версия: v${SCRIPT_VERSION}"; return; }
+    remote_ver=$(curl -fsSL "${SCRIPT_URL}?$(date +%s)" 2>/dev/null | grep -m1 '^SCRIPT_VERSION=' | cut -d'"' -f2)
+    [[ -z "$remote_ver" ]] && { warn "Нет связи с репозиторием"; reading "Enter..." _; return; }
+
+    if [[ "$remote_ver" == "$SCRIPT_VERSION" ]]; then
+        info "Актуальная версия: v${SCRIPT_VERSION}"
+        reading "Enter..." _
+        return
+    fi
 
     echo -e "${Y}Доступно обновление:${R} ${G}v${remote_ver}${R} ${GR}(текущая: v${SCRIPT_VERSION})${R}"
     reading "Обновить? [Y/n]:" c
     [[ "$c" =~ ^[Nn]$ ]] && return
-    curl -fsSL "${SCRIPT_URL}" -o "${SCRIPT_DIR}/darkvision.new" 2>/dev/null
-    grep -q "SCRIPT_VERSION" "${SCRIPT_DIR}/darkvision.new" 2>/dev/null && {
+
+    mkdir -p "${SCRIPT_DIR}"
+    curl -fsSL "${SCRIPT_URL}?$(date +%s)" -o "${SCRIPT_DIR}/darkvision.new" 2>/dev/null
+
+    if grep -q "SCRIPT_VERSION" "${SCRIPT_DIR}/darkvision.new" 2>/dev/null; then
         mv "${SCRIPT_DIR}/darkvision.new" "${SCRIPT_DIR}/darkvision"
         chmod +x "${SCRIPT_DIR}/darkvision"
         ln -sf "${SCRIPT_DIR}/darkvision" "${BIN_LINK}"
-        info "Обновлено до v${remote_ver}. Перезапусти: darkvision"
-        exit 0
-    } || { warn "Ошибка скачивания"; rm -f "${SCRIPT_DIR}/darkvision.new"; }
+        info "Обновлено до v${remote_ver}"
+        echo ""
+        step "Перезапуск с новой версией..."
+        sleep 1
+        # Перезапустить новую версию
+        exec "${SCRIPT_DIR}/darkvision"
+    else
+        warn "Ошибка скачивания"
+        rm -f "${SCRIPT_DIR}/darkvision.new"
+        reading "Enter..." _
+    fi
 }
 
 # ── Управление панелью ────────────────────────────────────
